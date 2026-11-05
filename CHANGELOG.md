@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-05
+
 ### Fixed
 
 - Recordings that were only viewed in Comu no longer show as Update available or get re-imported by sync. Comu moves a recording's change time when it is viewed, so each note now records a fingerprint of its content (`comu-content-hash`), and a recording counts as changed only when its content differs. A note imported before this release has no fingerprint, so the next time Comu marks its recording changed it is checked, counts as changed and is re-imported once (by sync, or from the import window under your duplicate-handling choice).

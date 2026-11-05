@@ -1,7 +1,7 @@
 {
 	"id": "comu-importer",
 	"name": "Comu Importer",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"minAppVersion": "1.13.2",
 	"description": "Import Comu recordings, transcripts, summaries and action items into notes.",
 	"author": "Charles Kelsoe (ckelsoe)",
