@@ -16,7 +16,8 @@ It only reads from Comu. It never changes, renames or deletes anything in your C
 
 ## Data storage
 
-- Your Comu token is kept in Obsidian's secret storage on your device. The plugin's settings file (`data.json`) holds only the name of that secret, never the token.
+- Your Comu token is kept in Obsidian's secret storage on your device, under the name `comu-importer-token`. It is never written to the plugin's settings file (`data.json`).
+- The sign-in window (desktop) keeps its own Comu web session on your device, separate from your browser, so you stay signed in there. **Sign out** clears it.
 - Notes and audio files are written into your vault, on your own device.
 
 ## Network use

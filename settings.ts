@@ -5,8 +5,6 @@ import type {
 import { isTranscriptPlacement } from 'obsidian-recording-importer-core';
 
 export interface ComuImporterSettings {
-	/** Name of the Obsidian secret holding the Comu token (not the token). */
-	tokenSecret: string;
 	outputFolder: string;
 	subfolderTemplate: string;
 	noteNameTemplate: string;
@@ -17,7 +15,6 @@ export interface ComuImporterSettings {
 }
 
 export const DEFAULT_SETTINGS: ComuImporterSettings = {
-	tokenSecret: 'comu-token',
 	outputFolder: 'Comu',
 	subfolderTemplate: '',
 	noteNameTemplate: '',
@@ -48,7 +45,6 @@ export function normalizeSettings(raw: unknown): ComuImporterSettings {
 	const dup = raw['duplicatePolicy'];
 	const placement = raw['transcriptPlacement'];
 	return {
-		tokenSecret: text('tokenSecret', d.tokenSecret),
 		outputFolder:
 			text('outputFolder', d.outputFolder).trim() || d.outputFolder,
 		subfolderTemplate: text('subfolderTemplate', d.subfolderTemplate),

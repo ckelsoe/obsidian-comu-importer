@@ -7,12 +7,12 @@ Import your [Comu](https://comu.com) recordings into notes: the AI summary, insi
 
 ## Setup
 
-1. Sign in at [web.comu.com](https://web.comu.com).
-2. Open the browser's developer console and run `localStorage.authorization`. Copy the value it prints (quotes included or not, both work).
-3. In the plugin settings, under **Token**, create a secret, paste the value and save.
-4. Click **Test connection**.
+Open the plugin's settings and sign in:
 
-The token is kept in Obsidian's secret storage, never in the plugin's settings file. Comu tokens last about five months; when it expires, repeat these steps.
+- **Sign in** (desktop): opens Comu's sign-in page in its own window. Sign in with your email and password. The window closes by itself and the settings show **Signed in as** your email.
+- **Paste token**: for Google or Apple accounts, or on mobile. In your browser, sign in at [web.comu.com](https://web.comu.com), open the developer console (Cmd+Option+J on a Mac, Ctrl+Shift+J elsewhere), run `copy(localStorage.authorization)`, then click **Paste from clipboard**.
+
+The plugin checks the token with Comu before saving it, and keeps it in Obsidian's secret storage under the name `comu-importer-token`, never in the plugin's settings file. Comu tokens last about five months; the settings show when yours expires. **Sign out** removes it.
 
 ## Importing
 

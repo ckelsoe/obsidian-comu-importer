@@ -8,6 +8,7 @@ import {
 import { isValidNoteNameTemplate } from 'obsidian-recording-importer-core';
 import type { ComuImporterSettings } from './settings';
 import type ComuImporterPlugin from './main';
+import { canOpenSignIn } from './comu-login';
 
 // Community discussion for this plugin. This must stay a never-expiring
 // discord.gg invite: a discord.com/channels/... deep link only resolves for
@@ -15,6 +16,11 @@ import type ComuImporterPlugin from './main';
 // invite expires after 7 days and would rot in a shipped release.
 const DISCORD_URL = 'https://discord.gg/gd6tKJDPj4';
 const REPO_URL = 'https://github.com/ckelsoe/obsidian-comu-importer';
+
+// For Google and Apple accounts, whose sign-in may refuse an embedded window.
+// The portal stores the token JSON-quoted; the plugin accepts it either way.
+const PASTE_DESC =
+	'For Google or Apple sign-in. In your browser, sign in at web.comu.com, open the developer console (Cmd+Option+J or Ctrl+Shift+J), run copy(localStorage.authorization), then click the button.';
 
 export class ComuSettingTab extends PluginSettingTab {
 	plugin: ComuImporterPlugin;
@@ -31,15 +37,53 @@ export class ComuSettingTab extends PluginSettingTab {
 				heading: 'Connection',
 				items: [
 					{
-						name: 'Token',
-						desc: 'Pick or create a secret holding your token. To get it, sign in at web.comu.com, open the developer console and run: localStorage.authorization',
-						control: { type: 'secret', key: 'tokenSecret' },
+						name: 'Status',
+						searchable: false,
+						render: (setting: Setting) => {
+							this.renderStatus(setting);
+						},
 					},
 					{
-						name: 'Test connection',
-						desc: 'Check that the token works.',
-						action: () => {
-							void this.testConnection();
+						name: 'Sign in',
+						desc: 'Opens the sign-in page in its own window. Sign in with your email and password; the window closes by itself when it is done.',
+						visible: () => canOpenSignIn(),
+						render: (setting: Setting) => {
+							setting.addButton((b) =>
+								b
+									.setButtonText('Sign in')
+									.setCta()
+									.onClick(() => {
+										void this.signIn();
+									}),
+							);
+						},
+					},
+					{
+						name: 'Paste token',
+						desc: PASTE_DESC,
+						render: (setting: Setting) => {
+							setting.addButton((b) =>
+								b
+									.setButtonText('Paste from clipboard')
+									.onClick(() => {
+										void this.pasteToken();
+									}),
+							);
+						},
+					},
+					{
+						name: 'Sign out',
+						desc: 'Remove the stored token from this device.',
+						visible: () => this.plugin.tokenInfo() !== null,
+						render: (setting: Setting) => {
+							setting.addButton((b) =>
+								b
+									.setButtonText('Sign out')
+									.setDestructive()
+									.onClick(() => {
+										void this.signOut();
+									}),
+							);
 						},
 					},
 				],
@@ -135,6 +179,62 @@ export class ComuSettingTab extends PluginSettingTab {
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] =
 			value;
 		await this.plugin.saveSettings();
+	}
+
+	private renderStatus(setting: Setting): void {
+		const info = this.plugin.tokenInfo();
+		if (info === null) {
+			setting.setDesc('Not signed in.');
+			return;
+		}
+		const who = info.email ?? 'your account';
+		const until =
+			info.expiresAt === null
+				? ''
+				: info.expiresAt.getTime() <= Date.now()
+					? ' The token has expired; sign in again.'
+					: ` The token is valid until ${info.expiresAt.toLocaleDateString()}.`;
+		setting.setDesc(`Signed in as ${who}.${until}`);
+		setting.addButton((b) =>
+			b.setButtonText('Test connection').onClick(() => {
+				void this.testConnection();
+			}),
+		);
+	}
+
+	/**
+	 * Run a button's action: any failure becomes a Notice plus the error in
+	 * the console, and the tab refreshes only while it is still on screen.
+	 */
+	private async guarded(
+		what: string,
+		action: () => Promise<boolean | void>,
+	): Promise<void> {
+		try {
+			const changed = await action();
+			if (changed !== false && this.containerEl.isConnected)
+				this.update();
+		} catch (err) {
+			console.error(`Comu importer: ${what} failed`, err);
+			new Notice(
+				`Comu importer: ${what} failed. See the developer console.`,
+			);
+		}
+	}
+
+	private signIn(): Promise<void> {
+		return this.guarded('sign-in', () => this.plugin.runSignIn());
+	}
+
+	private pasteToken(): Promise<void> {
+		return this.guarded('pasting the token', async () => {
+			const text = await navigator.clipboard.readText();
+			return this.plugin.saveToken(text);
+		});
+	}
+
+	private signOut(): Promise<void> {
+		return this.guarded('sign-out', () => this.plugin.signOut());
 	}
 
 	private async testConnection(): Promise<void> {

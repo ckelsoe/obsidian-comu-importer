@@ -33,4 +33,13 @@ declare module 'obsidian' {
 	interface PluginManifest {
 		version: string;
 	}
+
+	interface App {
+		/**
+		 * Obsidian's per-vault id (undocumented, as in Plaud Importer's
+		 * types.d.ts). Names the sign-in window's partition so each vault keeps
+		 * its own Comu session. Optional and validated where it is used.
+		 */
+		appId?: string;
+	}
 }
