@@ -55,11 +55,19 @@ type ViewKey =
  * id only, the same key the writer uses: the index's date-and-duration
  * fallback could pair two different recordings of the same length.
  */
-export function rowState(recording: Recording, index: ImportedIndex): RowState {
+export function rowState(
+	recording: Recording,
+	index: ImportedIndex,
+	movedElsewhere: ReadonlySet<string> = new Set(),
+): RowState {
 	const found = index.byId.get(
 		index.canonicalId(recording.id) as RecordingId,
 	);
 	if (found === undefined) {
+		// A note you moved out of the output folder: imported, left where it is.
+		if (movedElsewhere.has(index.canonicalId(recording.id))) {
+			return 'imported';
+		}
 		return isUnprocessed(recording) ? 'not-ready' : 'new';
 	}
 	return isUpdateAvailable(recording.versionMs, found.versionMs)
@@ -122,6 +130,7 @@ export class ImportModal extends Modal {
 	private recordings: readonly Recording[] = [];
 	private readonly checked = new Set<string>();
 	private index: ImportedIndex | null = null;
+	private moved: ReadonlySet<string> = new Set();
 	private running = false;
 	private closed = false;
 	private listEl: HTMLElement | null = null;
@@ -191,10 +200,13 @@ export class ImportModal extends Modal {
 	private rebuildIndex(): void {
 		// Null while Obsidian is still reading the vault; rows then show as New.
 		this.index = this.deps.imports.index();
+		this.moved = this.deps.imports.movedElsewhere();
 	}
 
 	private stateOf(recording: Recording): RowState {
-		return this.index === null ? 'new' : rowState(recording, this.index);
+		return this.index === null
+			? 'new'
+			: rowState(recording, this.index, this.moved);
 	}
 
 	private isIgnored(recording: Recording): boolean {
@@ -208,9 +220,18 @@ export class ImportModal extends Modal {
 		);
 	}
 
+	/** Uncheck rows that can no longer be imported, after the index changed. */
+	private dropIneligible(): void {
+		for (const r of this.recordings) {
+			if (!this.canCheck(r)) this.checked.delete(r.id);
+		}
+	}
+
 	private selectNewAndUpdated(): void {
 		this.checked.clear();
 		for (const r of this.visible()) {
+			// An ignored recording is only imported when picked by hand.
+			if (this.isIgnored(r)) continue;
 			const state = this.stateOf(r);
 			if (state === 'new' || state === 'update') this.checked.add(r.id);
 		}
@@ -423,6 +444,7 @@ export class ImportModal extends Modal {
 				'Comu importer: Obsidian is still loading the vault. Try again in a moment.',
 			);
 			this.rebuildIndex();
+			this.dropIneligible();
 			this.renderList();
 			return;
 		}

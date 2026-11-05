@@ -56,6 +56,12 @@ describe('rowState', () => {
 		expect(rowState(recording, index)).toBe('new');
 	});
 
+	it('counts a note moved out of the output folder as imported', () => {
+		expect(rowState(recording, indexWith(), new Set([NOTE_ID]))).toBe(
+			'imported',
+		);
+	});
+
 	it('is not ready while Comu is still processing', () => {
 		const pending = parseNote({
 			...LIST_ITEM,

@@ -142,6 +142,10 @@ export function unwrapEnvelope(
 	return data;
 }
 
+/** Comu's list returns at most this many recordings per page. */
+const MAX_PAGE_SIZE = 100;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** Gateway answers worth one more try: Comu's edge returns these under load. */
 const RETRYABLE_STATUS: readonly number[] = [502, 503, 504];
 /** Pause before each retry, in milliseconds. Three attempts in all. */
@@ -153,6 +157,17 @@ const sleep = (ms: number): Promise<void> =>
 	});
 
 export class ComuClient {
+	/** When each request in the last 24 hours was sent (this session only). */
+	private readonly sent: number[] = [];
+
+	/** Requests this client sent in the last 24 hours, retries included. */
+	requestsLastDay(now = Date.now()): number {
+		while (this.sent.length > 0 && (this.sent[0] ?? now) <= now - DAY_MS) {
+			this.sent.shift();
+		}
+		return this.sent.length;
+	}
+
 	constructor(
 		private readonly getKey: () => string,
 		private readonly request: Requester = (r) => requestUrl(r),
@@ -172,8 +187,9 @@ export class ComuClient {
 				true,
 			);
 		}
-		const send = () =>
-			this.request({
+		const send = () => {
+			this.sent.push(Date.now());
+			return this.request({
 				url: `${COMU_API_BASE}${path}`,
 				method,
 				headers: {
@@ -185,6 +201,7 @@ export class ComuClient {
 				...(body !== undefined ? { body: JSON.stringify(body) } : {}),
 				throw: false,
 			});
+		};
 		// Every call is a read, so a gateway error is safe to retry.
 		let response = await send();
 		for (const delay of RETRY_DELAYS_MS) {
@@ -206,8 +223,26 @@ export class ComuClient {
 	}
 
 	/** Confirms the key works. Resolves to nothing; throws on failure. */
+	/**
+	 * Confirms the key works and can read both notes and action items, so a
+	 * key that would fail every import is not accepted.
+	 */
 	async testConnection(): Promise<void> {
 		await this.listPage(1, 1, false);
+		await this.call(
+			'POST',
+			'/v1/todo/list/paging',
+			{ page: 1, pageSize: 1 },
+			false,
+		).catch((err: unknown) => {
+			if (err instanceof ComuApiError && err.status === 403) {
+				throw new ComuApiError(
+					'This API key can read notes but not action items. Create a key with action item access in the Comu app.',
+					403,
+				);
+			}
+			throw err;
+		});
 	}
 
 	async listPage(
@@ -237,7 +272,7 @@ export class ComuClient {
 	/** Every recording (and, when asked, the trash), as Comu lists them. */
 	async listAll(
 		includeTrashed: boolean,
-		pageSize = 50,
+		pageSize = MAX_PAGE_SIZE,
 	): Promise<Recording[]> {
 		const all = await this.listEvery(false, pageSize);
 		if (!includeTrashed) return all;
@@ -255,10 +290,9 @@ export class ComuClient {
 		for (let page = 1; ; page++) {
 			const result = await this.listPage(page, pageSize, trash);
 			all.push(...result.recordings);
-			if (
-				result.recordings.length < pageSize ||
-				all.length >= result.total
-			) {
+			// Comu caps a page at MAX_PAGE_SIZE, so an empty page or the total
+			// ends the list, not a page shorter than asked for.
+			if (result.recordings.length === 0 || all.length >= result.total) {
 				return all;
 			}
 		}
@@ -301,35 +335,51 @@ export class ComuClient {
 		);
 	}
 
-	async getArtifacts(id: RecordingId): Promise<RecordingArtifacts> {
+	/**
+	 * The parts of a recording `want` asks for: summary, insights and action
+	 * items with `summary`, transcript and chapters with `transcript`. Parts
+	 * not asked for are not requested.
+	 */
+	async getArtifacts(
+		id: RecordingId,
+		want: { readonly summary: boolean; readonly transcript: boolean } = {
+			summary: true,
+			transcript: true,
+		},
+	): Promise<RecordingArtifacts> {
 		const q = `noteId=${encodeURIComponent(id)}`;
 		// One request at a time: Comu's gateway answers 502 to some of them
 		// when they arrive together (seen 2026-11-05).
-		const transcript = await this.getTranscript(id);
-		const summaryData = await this.get(`/v1/note/querySummary?${q}`, false);
+		const transcript = want.transcript
+			? await this.getTranscript(id)
+			: null;
+		const summaryData = want.summary
+			? await this.get(`/v1/note/querySummary?${q}`, false)
+			: null;
 		// A failed extra fails the whole recording on purpose: writing the note
 		// without it would drop chapters or tasks an earlier import saved, and
 		// mark the note current so it is not retried.
-		const outlineData = await this.get(
-			`/v1/note/queryOutlines?${q}`,
-			false,
-		);
-		const todoData = await this.call(
-			'POST',
-			'/v1/todo/list/queryByNote',
-			{ noteId: id },
-			false,
-		).catch((err: unknown) => {
-			// Fail the recording rather than import it without action items: a
-			// re-import would drop the ones its note already has.
-			if (err instanceof ComuApiError && err.status === 403) {
-				throw new ComuApiError(
-					'This API key cannot read action items. Create a key with action item access in the Comu app, then import again.',
-					403,
-				);
-			}
-			throw err;
-		});
+		const outlineData = want.transcript
+			? await this.get(`/v1/note/queryOutlines?${q}`, false)
+			: null;
+		const todoData = !want.summary
+			? null
+			: await this.call(
+					'POST',
+					'/v1/todo/list/queryByNote',
+					{ noteId: id },
+					false,
+				).catch((err: unknown) => {
+					// Fail the recording rather than import it without action items: a
+					// re-import would drop the ones its note already has.
+					if (err instanceof ComuApiError && err.status === 403) {
+						throw new ComuApiError(
+							'This API key cannot read action items. Create a key with action item access in the Comu app, then import again.',
+							403,
+						);
+					}
+					throw err;
+				});
 		const parsed = parseSummary(summaryData);
 		const summary: Summary | null =
 			parsed.summary !== null ? { id, text: parsed.summary } : null;

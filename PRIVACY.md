@@ -6,11 +6,11 @@ This policy explains what the **Comu Importer** Obsidian plugin ("the plugin") d
 
 ## Summary
 
-The plugin reads your recordings from Comu's official API, with an API key you create, and writes them into your vault. It talks to no server other than Comu's. It collects nothing for the maintainer and has no telemetry.
+The plugin reads your recordings from Comu's official API, with an API key you create, and writes them into your vault. It talks only to Comu's API and, when you turn on audio downloads, to the temporary audio link Comu provides. It collects nothing for the maintainer and has no telemetry.
 
 ## What the plugin does
 
-When you open the import window, the plugin lists your Comu recordings. When you click Import, it fetches the transcript, summary, insights, outline and action items of each checked recording and writes a note into your output folder. With **Download audio** on, it also downloads the recording's audio into a `-assets` folder next to the note. It acts only when you open the import window or use a button in its settings.
+When you open the import window, the plugin lists your Comu recordings. When you click Import, it fetches the transcript, summary, insights, outline and action items of each checked recording and writes a note into your output folder. With **Download audio** on, it also downloads the recording's audio into a `-assets` folder next to the note. It acts when you open the import window or use a command or a button in its settings, and, if you turn on **Sync automatically**, on the interval you choose: then it lists your recordings, fetches new and changed ones and writes their notes in the background, without opening a window.
 
 It only reads from Comu. Comu's API offers no way to change your account, and the plugin calls only its query endpoints.
 
@@ -22,7 +22,7 @@ It only reads from Comu. Comu's API offers no way to change your account, and th
 ## Network use
 
 - `https://openapi-api.comu.com`: listing recordings and fetching their content. Every request carries your API key.
-- The temporary audio link Comu returns, when **Download audio** is on. No key is sent there.
+- The temporary audio link Comu returns, when audio downloads are on. It is a signed link on whatever host Comu chooses (often a storage or CDN host). No key is sent there.
 
 No other host is contacted. Nothing is sent to the maintainer or to Obsidian.
 

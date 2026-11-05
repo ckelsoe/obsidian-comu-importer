@@ -252,7 +252,11 @@ describe('ComuClient', () => {
 		).toBe(true);
 		const posts = server.calls.filter((c) => c.method === 'POST').map(path);
 		expect(new Set(posts)).toEqual(
-			new Set(['/v1/note/paging', '/v1/todo/list/queryByNote']),
+			new Set([
+				'/v1/note/paging',
+				'/v1/todo/list/paging',
+				'/v1/todo/list/queryByNote',
+			]),
 		);
 	});
 });
@@ -322,11 +326,11 @@ describe('gateway errors', () => {
 				json: status === 200 ? ok({ data: [], total: 0 }) : {},
 			};
 		});
-		await new ComuClient(
-			() => 't',
-			server.request,
-			noWait,
-		).testConnection();
+		await new ComuClient(() => 't', server.request, noWait).listPage(
+			1,
+			1,
+			false,
+		);
 		expect(server.calls).toHaveLength(3);
 	});
 
@@ -393,5 +397,91 @@ describe('getVersionMs', () => {
 		expect(
 			await new ComuClient(() => 't', server.request).getVersionMs(id),
 		).toBeUndefined();
+	});
+});
+
+describe('saving a key checks what it can read', () => {
+	it('refuses a key that can read notes but not action items', async () => {
+		const server = fakeServer((req) =>
+			path(req) === '/v1/todo/list/paging'
+				? { status: 403, json: {} }
+				: { status: 200, json: ok({ data: [], total: 0 }) },
+		);
+		await expect(
+			new ComuClient(() => 't', server.request).testConnection(),
+		).rejects.toThrow(/not action items/);
+	});
+});
+
+describe('only what is asked for is fetched', () => {
+	const serve = () =>
+		fakeServer((req) => {
+			const data: Record<string, unknown> = {
+				'/v1/note/queryTranscribeResult': TRANSCRIPT_DATA,
+				'/v1/note/querySummary': SUMMARY_DATA,
+				'/v1/note/queryOutlines': OUTLINE_DATA,
+				'/v1/todo/list/queryByNote': TODO_DATA,
+			};
+			return { status: 200, json: ok(data[path(req)]) };
+		});
+
+	it('transcript only: no summary, insight or action-item requests', async () => {
+		const server = serve();
+		const a = await new ComuClient(() => 't', server.request).getArtifacts(
+			id,
+			{
+				summary: false,
+				transcript: true,
+			},
+		);
+		expect(server.calls.map(path)).toEqual([
+			'/v1/note/queryTranscribeResult',
+			'/v1/note/queryOutlines',
+		]);
+		expect(a.summary).toBeNull();
+		expect(a.transcript).not.toBeNull();
+	});
+
+	it('summary only: no transcript or outline requests', async () => {
+		const server = serve();
+		await new ComuClient(() => 't', server.request).getArtifacts(id, {
+			summary: true,
+			transcript: false,
+		});
+		expect(server.calls.map(path)).toEqual([
+			'/v1/note/querySummary',
+			'/v1/todo/list/queryByNote',
+		]);
+	});
+});
+
+describe('listing', () => {
+	it('keeps paging when Comu returns fewer than asked for per page', async () => {
+		const server = fakeServer((req) => {
+			const { page } = JSON.parse(req.body as string) as { page: number };
+			// Comu caps pages at 100 whatever the request asks for.
+			const items =
+				page <= 2 ? [{ ...LIST_ITEM, noteId: `n${page}` }] : [];
+			return { status: 200, json: ok({ data: items, total: 2 }) };
+		});
+		const all = await new ComuClient(() => 't', server.request).listAll(
+			false,
+			50,
+		);
+		expect(all.map((r) => r.id)).toEqual(['n1', 'n2']);
+	});
+
+	it('counts the requests it sent in the last day', async () => {
+		const server = fakeServer(() => ({
+			status: 200,
+			json: ok({ data: [], total: 0 }),
+		}));
+		const client = new ComuClient(() => 't', server.request);
+		await client.listPage(1, 1, false);
+		await client.listPage(1, 1, false);
+		expect(client.requestsLastDay()).toBe(2);
+		expect(client.requestsLastDay(Date.now() + 25 * 60 * 60 * 1000)).toBe(
+			0,
+		);
 	});
 });

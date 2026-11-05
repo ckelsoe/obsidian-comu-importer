@@ -9,6 +9,7 @@ import {
 	managedMarkers,
 	NoteWriter,
 	runImport,
+	trimTrailingChars,
 	type ArtifactSelection,
 	type DebugLogger,
 	type DuplicatePolicy,
@@ -187,6 +188,26 @@ export class ImportService {
 	}
 
 	/**
+	 * Recording ids of imported notes you moved outside the output folder.
+	 * They count as imported: the window shows them so, and sync neither
+	 * re-creates them in the output folder nor moves them back.
+	 */
+	movedElsewhere(): Set<string> {
+		const root = trimTrailingChars(this.settings().outputFolder, '/');
+		const key = `${COMU_PROFILE.keyPrefix}-id`;
+		const ids = new Set<string>();
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			if (file.path.startsWith(`${root}/`)) continue;
+			const id: unknown =
+				this.app.metadataCache.getFileCache(file)?.frontmatter?.[key];
+			if (typeof id === 'string' && id.length > 0) {
+				ids.add(COMU_PROFILE.canonicalId(id));
+			}
+		}
+		return ids;
+	}
+
+	/**
 	 * Import `recordings`. Recordings Comu has not processed yet get a
 	 * placeholder note when the setting allows it, and are skipped otherwise.
 	 */
@@ -261,7 +282,10 @@ export class ImportService {
 			options,
 			fetchArtifacts: async (id) => {
 				if (unprocessed.has(id)) throw new ComuNotProcessedError();
-				const artifacts = await this.client.getArtifacts(id);
+				const artifacts = await this.client.getArtifacts(id, {
+					summary: args.choice.summary,
+					transcript: args.choice.transcript,
+				});
 				const version = await this.client.getVersionMs(id);
 				if (version !== undefined) fresh.set(id, version);
 				return artifacts;

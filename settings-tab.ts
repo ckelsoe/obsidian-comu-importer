@@ -102,7 +102,7 @@ const CUSTOM_FRONTMATTER_DESC =
 const TAG_MODE_DESC =
 	'Which tags go in the tags property. Comu has no AI keyword tags, so the choice is your own tags or none.';
 const AUTO_SYNC_DESC =
-	'Imports new and changed recordings in the background on a schedule, without asking. A changed recording is re-imported: the part of its note between the markers is replaced, and the text around it is kept. Comu allows 1,000 requests a day per key, about 4 per recording, so a long interval is kinder to that limit.';
+	'Imports new and changed recordings in the background on a schedule, without asking. A changed recording is re-imported: the part of its note between the markers is replaced, and the text around it is kept. Comu allows 1,000 requests a day per key. A recording takes about 5 (6 with audio), and each sync lists your recordings 100 at a time. Sync pauses once this device has used 600 in a day, leaving the rest for imports you start.';
 
 const NUMERIC_KEYS: readonly string[] = [
 	'transcriptHeaderLevel',

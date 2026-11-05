@@ -47,7 +47,7 @@ The plugin uses [Comu's official developer API](https://openapi.comu.com) with a
 - **It never writes to Comu.** Comu's API is read-only, and the plugin calls only its query endpoints.
 - **It never overwrites a note it did not write.** If a note with the same name exists and was not imported by this plugin, the new note is saved beside it with " 2" added to the name.
 - **It keeps your own writing.** The note body the plugin writes sits between two hidden markers. Text you add above or below them stays when you import the recording again. The plugin's own frontmatter properties (`comu-id`, `date`, `speakers` and the rest) are rewritten on each import; properties you add yourself are kept.
-- **It writes only into its output folder.** Notes and audio go into the folder you choose. The one exception is renaming: if you move an imported note elsewhere and rename it, its `-assets` folder moves with it.
+- **It writes only into its output folder.** Notes and audio go into the folder you choose. Notes you move out of that folder count as imported and are left where you put them: imports and sync do not re-create or update them. The one exception is renaming: if you rename a note you moved, its `-assets` folder moves with it.
 - **It does not phone home.** No telemetry, no analytics. The only server it talks to is Comu's.
 
 ## Requirements
@@ -111,7 +111,7 @@ When the import finishes, the window shows what happened: how many notes are new
 
 ## Automatic sync
 
-Turn on **Sync automatically** and pick an interval. In the background, the plugin imports new recordings and updates the notes of recordings that changed in Comu, using your **What to import** choices. It never asks and never touches an unchanged note. It skips ignored recordings and recordings Comu has not processed yet, and imports at most 25 recordings per run to stay within Comu's daily limit. **Comu Importer: Sync new and changed recordings now** runs it on demand.
+Turn on **Sync automatically** and pick an interval. In the background, the plugin imports new recordings and updates the notes of recordings that changed in Comu, using your **What to import** choices. It never asks and never touches an unchanged note. It skips ignored recordings, recordings Comu has not processed yet, and notes you moved out of the output folder. It imports at most 25 recordings per run and pauses once the plugin has used 600 of Comu's 1,000 daily requests on this device. **Comu Importer: Sync new and changed recordings now** runs it on demand.
 
 If Comu refuses the API key, sync pauses until you save a working key.
 
@@ -198,10 +198,10 @@ Tokens use [Moment formats](https://momentjs.com/docs/#/displaying/format/) in d
 
 ## Limits
 
-- **Daily request limit.** Comu allows 1,000 API requests per rolling 24 hours per key. Importing one recording takes about four requests, so the first import of a very large library may need to be spread over more than one day. Requests Comu refuses for the limit show up as failures with Comu's reason; wait and import the rest later.
+- **Daily request limit.** Comu allows 1,000 API requests per rolling 24 hours per key. Importing one recording takes about five requests (six with audio), and listing takes one per 100 recordings, so the first import of a very large library may need to be spread over more than one day. Automatic sync pauses once the plugin has used 600 requests in a day on this device, leaving room for imports you start. Requests Comu refuses for the limit show up as failures with Comu's reason; wait and import the rest later.
 - **"Update available" after viewing.** Comu marks a recording as changed when it is opened, including in the Comu app. A recording you have viewed since importing it shows **Update available**, and automatic sync re-imports it. The plugin's own reads do not cause this: it stores the change time Comu reports after reading.
 - **Times.** Comu does not report the time zone a recording was made in, so times are shown in your computer's zone.
-- **Action items need permission.** If your API key cannot read action items, each recording fails with a message saying so, rather than being imported without them (which would delete action items an earlier import saved). Create a key with action item access.
+- **Action items need permission.** **Save** refuses a key that cannot read action items, and says so. Create a key with note and action item access.
 - **Not imported yet:** your own notes typed in the Comu app, Comu's folders, the visual summary, and contacts.
 
 ## Troubleshooting

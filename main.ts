@@ -6,6 +6,7 @@ import {
 	runAutoSyncTick,
 	tickOutcomeForCategory,
 	type AutoSyncState,
+	type RecordingId,
 	type Recording,
 } from 'obsidian-recording-importer-core';
 import {
@@ -27,8 +28,13 @@ import {
 /** The fixed secret the API key is stored under. */
 export const API_KEY_SECRET_ID = 'comu-importer-api-key';
 
-/** Most recordings one automatic sync imports (about 4 requests each). */
+/** Most recordings one automatic sync imports (about 5 requests each). */
 const SYNC_MAX_IMPORTS = 25;
+/**
+ * Automatic sync stops once this session has used this many of Comu's 1,000
+ * daily requests, so imports you start yourself keep room to run.
+ */
+const SYNC_REQUEST_BUDGET = 600;
 
 export default class ComuImporterPlugin extends Plugin {
 	settings: ComuImporterSettings = normalizeSettings(undefined);
@@ -159,8 +165,8 @@ export default class ComuImporterPlugin extends Plugin {
 	/** Start, restart or stop the sync timer to match the settings. */
 	reconcileAutoSync(): void {
 		this.stopAutoSync();
+		// A pause for a refused key stays until saveKey accepts a working one.
 		if (this.unloaded || !this.settings.autoSyncEnabled) return;
-		this.syncState = INITIAL_AUTO_SYNC_STATE;
 		this.syncTimer = window.setInterval(() => {
 			void this.syncNow(false);
 		}, this.settings.autoSyncIntervalMinutes * 60_000);
@@ -196,6 +202,12 @@ export default class ComuImporterPlugin extends Plugin {
 			say('nothing to sync: turn on something under What to import.');
 			return;
 		}
+		if (this.client.requestsLastDay() >= SYNC_REQUEST_BUDGET) {
+			say(
+				'sync is resting: this device has used most of the daily request allowance Comu gives each key. It resumes as requests age out of the last 24 hours.',
+			);
+			return;
+		}
 		// One import or sync at a time; a busy run means try again next tick.
 		if (!this.imports.tryLock()) {
 			say('an import is running. Try again when it finishes.');
@@ -218,6 +230,7 @@ export default class ComuImporterPlugin extends Plugin {
 				listPage: async (skip) => {
 					if (skip > 0) return [];
 					const all = await this.client.listAll(false);
+					if (this.unloaded) return [];
 					// Unprocessed recordings wait for a later tick.
 					return all.map((r): Recording =>
 						isUnprocessed(r) ? { ...r, waitPull: true } : r,
@@ -264,7 +277,14 @@ export default class ComuImporterPlugin extends Plugin {
 				pageSize: Number.MAX_SAFE_INTEGER,
 				maxImportsPerTick: SYNC_MAX_IMPORTS,
 				maxPagesPerTick: 1,
-				ignoredIds: new Set(s.ignoredRecordingIds),
+				// Ignored recordings, and notes you moved out of the output
+				// folder, are left alone.
+				ignoredIds: new Set([
+					...s.ignoredRecordingIds,
+					...[...this.imports.movedElsewhere()].map(
+						(id) => id as RecordingId,
+					),
+				]),
 				log: (message, payload) =>
 					this.imports.debugLogger.log({
 						kind: 'note',
