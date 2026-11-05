@@ -1,7 +1,7 @@
-// Maps Comu's private web API (api.comu.com/api/kirby) onto the shared
+// Maps Comu's official API (openapi-api.comu.com/api/kirby) onto the shared
 // recording model. Pure functions, no network: every field is read with a type
-// guard, because the API is undocumented and can change without notice.
-// Response shapes recorded 2026-11-05 from the web portal.
+// guard: the published models list fewer fields than the responses carry, and
+// the optional ones (updateTime, trash, dir) may be absent.
 
 import type {
 	AdditionalSummary,
@@ -88,7 +88,7 @@ export interface NotePage {
 	readonly total: number;
 }
 
-/** `data` of `POST /v2/note/paging`. */
+/** `data` of `POST /v1/note/paging`. */
 export function parseNotePage(data: unknown): NotePage {
 	if (!isRecord(data)) throw new ComuParseError('Note list is not an object');
 	const items = data['data'];
@@ -101,10 +101,15 @@ export function parseNotePage(data: unknown): NotePage {
 	};
 }
 
-/** `data` of `GET /v2/note/noteDetail`: the signed audio URL, if any. */
+/**
+ * The audio link from `POST /v1/note/paging` with `needGenTempAudioUrl`: the
+ * first item's `audioUrl` (`tempAudioUrl` accepted too), https only.
+ */
 export function parseAudioUrl(data: unknown): string | null {
-	if (!isRecord(data)) return null;
-	const url = str(data, 'audioUrl');
+	if (!isRecord(data) || !Array.isArray(data['data'])) return null;
+	const item: unknown = data['data'][0];
+	if (!isRecord(item)) return null;
+	const url = str(item, 'audioUrl') ?? str(item, 'tempAudioUrl');
 	return url !== undefined && /^https:\/\//i.test(url) ? url : null;
 }
 

@@ -41,3 +41,63 @@ describe('audioExtension', () => {
 		expect(audioExtension('not a url')).toBe('m4a');
 	});
 });
+
+describe('normalizeSettings, output and import options', () => {
+	it('keeps valid values', () => {
+		const s = normalizeSettings({
+			noteNameTemplate: '{{title}} {{YYYY}}',
+			fallbackTimezone: 'America/New_York',
+			forbiddenCharReplacement: '_',
+			transcriptHeaderLevel: 3,
+			tagMode: 'none',
+			ribbonIcon: 'headphones',
+			autoSyncIntervalMinutes: 180,
+			autoCloseSummarySeconds: 10,
+			customFrontmatter: [
+				{ key: 'status', value: 'new', preserve: true },
+			],
+			ignoredRecordingIds: ['a', 'b'],
+		});
+		expect(s.noteNameTemplate).toBe('{{title}} {{YYYY}}');
+		expect(s.fallbackTimezone).toBe('America/New_York');
+		expect(s.forbiddenCharReplacement).toBe('_');
+		expect(s.transcriptHeaderLevel).toBe(3);
+		expect(s.tagMode).toBe('none');
+		expect(s.ribbonIcon).toBe('headphones');
+		expect(s.autoSyncIntervalMinutes).toBe(180);
+		expect(s.autoCloseSummarySeconds).toBe(10);
+		expect(s.customFrontmatter).toEqual([
+			{ key: 'status', value: 'new', preserve: true },
+		]);
+		expect(s.ignoredRecordingIds).toEqual(['a', 'b']);
+	});
+
+	it('replaces values that would break an import with the defaults', () => {
+		const s = normalizeSettings({
+			noteNameTemplate: '{{title}}/x',
+			fallbackTimezone: 'Mars/Olympus',
+			forbiddenCharReplacement: '/',
+			transcriptHeaderLevel: 9,
+			tagMode: 'everything',
+			ribbonIcon: 'not-an-icon',
+			autoCloseSummarySeconds: 0,
+			customFrontmatter: [{ value: 'no key' }, 'junk'],
+			ignoredRecordingIds: ['a', 3, ''],
+		});
+		expect(s.noteNameTemplate).toBe(DEFAULT_SETTINGS.noteNameTemplate);
+		expect(s.fallbackTimezone).toBe('');
+		expect(s.forbiddenCharReplacement).toBe('-');
+		expect(s.transcriptHeaderLevel).toBe(4);
+		expect(s.tagMode).toBe(DEFAULT_SETTINGS.tagMode);
+		expect(s.ribbonIcon).toBe(DEFAULT_SETTINGS.ribbonIcon);
+		expect(s.autoCloseSummarySeconds).toBe(20);
+		expect(s.customFrontmatter).toEqual([]);
+		expect(s.ignoredRecordingIds).toEqual(['a']);
+	});
+
+	it('never shares the default lists between loads', () => {
+		const a = normalizeSettings(undefined);
+		a.ignoredRecordingIds.push('x' as never);
+		expect(normalizeSettings(undefined).ignoredRecordingIds).toEqual([]);
+	});
+});

@@ -208,7 +208,7 @@ export class ButtonStub {
  * Chainable Setting stub. Every setter and adder returns `this` so builder
  * chains run. The button adders INVOKE their callback with a ButtonStub and
  * collect it on `buttons`, because a callback that is never called cannot be
- * tested; find one with `settingButton(setting, "Sign in")`.
+ * tested; find one with `settingButton(setting, "Save")`.
  */
 export class Setting {
 	settingEl: ChainableStub = new ChainableStub();

@@ -34,12 +34,26 @@ declare module 'obsidian' {
 		version: string;
 	}
 
+	/**
+	 * Obsidian's internal per-file fold store (undocumented; same shape Plaud
+	 * Importer types). Used to open an imported note with its transcript
+	 * collapsed. Optional, and checked at the call site.
+	 */
+	interface FoldPosition {
+		from: number;
+		to: number;
+	}
+	interface FoldInfo {
+		folds: FoldPosition[];
+		lines: number;
+	}
+	interface FoldManager {
+		save(file: import('obsidian').TFile, foldInfo: FoldInfo): Promise<void>;
+	}
 	interface App {
-		/**
-		 * Obsidian's per-vault id (undocumented, as in Plaud Importer's
-		 * types.d.ts). Names the sign-in window's partition so each vault keeps
-		 * its own Comu session. Optional and validated where it is used.
-		 */
-		appId?: string;
+		foldManager?: FoldManager;
+	}
+	interface MarkdownSubView {
+		applyFoldInfo?(foldInfo: FoldInfo): void;
 	}
 }
