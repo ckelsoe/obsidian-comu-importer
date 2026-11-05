@@ -1,6 +1,6 @@
 {
 	"name": "comu-importer",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Import Comu recordings, transcripts, summaries and action items into notes.",
 	"main": "main.js",
 	"type": "module",
