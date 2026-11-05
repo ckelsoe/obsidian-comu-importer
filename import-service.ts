@@ -6,6 +6,8 @@ import type { App } from 'obsidian';
 import {
 	BufferedDebugLogger,
 	buildImportedIndexWithColdCheck,
+	categoryAllowsReauth,
+	classifyError,
 	managedMarkers,
 	NoteWriter,
 	runImport,
@@ -18,15 +20,21 @@ import {
 	type ImportModalOptions,
 	type ImportRunObserver,
 	type Recording,
+	type RecordingArtifacts,
 	type RecordingId,
 } from 'obsidian-recording-importer-core';
-import { AudioPipeline } from './audio-pipeline';
+import { AUDIO_START_MARKER, AudioPipeline } from './audio-pipeline';
 import {
 	COMU_ERROR_POLICY,
 	ComuNotProcessedError,
 	type ComuClient,
 } from './comu-client';
 import { COMU_PROFILE } from './comu-profile';
+import {
+	contentFingerprint,
+	FINGERPRINT_KEY,
+	readStoredFingerprint,
+} from './content-fingerprint';
 import { foldTranscript } from './note-folds';
 import type { RecordingRenamer } from './rename';
 import type { ComuImporterSettings } from './settings';
@@ -48,6 +56,26 @@ function selectionFor(choice: ImportChoice): ArtifactSelection {
 		includeScreenshots: false,
 		includeAudio: choice.audio,
 	};
+}
+
+/** One recording's content as read for an import. */
+interface Fetched {
+	readonly artifacts: RecordingArtifacts;
+	readonly fingerprint: string;
+	readonly version?: number;
+	/** The choice the content was read for; reused only for the same one. */
+	readonly choiceKey: string;
+}
+
+const choiceKey = (c: ImportChoice): string =>
+	`${String(c.summary)}/${String(c.transcript)}/${String(c.audio)}`;
+
+/** What a change check found. */
+export interface ChangeCheck {
+	/** Recordings whose content really changed. */
+	readonly changed: Set<string>;
+	/** Recordings that could not be checked, with the reason. */
+	readonly failures: readonly { recording: Recording; reason: string }[];
 }
 
 /** True when the choice imports nothing at all. */
@@ -208,6 +236,109 @@ export class ImportService {
 	}
 
 	/**
+	 * Content read by the last checkForChanges for recordings that did change,
+	 * kept so the import that follows does not read it a second time. Cleared
+	 * by the next check and at the end of every import, and used only for the
+	 * same choice and an unchanged Comu change time.
+	 */
+	private readonly prefetched = new Map<string, Fetched>();
+
+	/** Drop content read by a check that no import will use. */
+	discardPrefetched(): void {
+		this.prefetched.clear();
+	}
+
+	/** Read one recording's selected parts, its fingerprint and fresh marker. */
+	private async fetchForImport(
+		recording: Recording,
+		choice: ImportChoice,
+	): Promise<Fetched> {
+		const artifacts = await this.client.getArtifacts(recording.id, {
+			summary: choice.summary,
+			transcript: choice.transcript,
+		});
+		// Reading the summary can move updateTime, so read the marker after it.
+		const version = await this.client.getVersionMs(recording.id);
+		return {
+			artifacts,
+			fingerprint: contentFingerprint(recording, artifacts, choice),
+			choiceKey: choiceKey(choice),
+			...(version !== undefined ? { version } : {}),
+		};
+	}
+
+	/** The fingerprint a note stores, read from the file, or undefined. */
+	private async storedFingerprint(path: string): Promise<string | undefined> {
+		const file = this.app.vault.getFileByPath(path);
+		if (file === null) return undefined;
+		return readStoredFingerprint(await this.app.vault.read(file));
+	}
+
+	/**
+	 * Comu's change time moves when a recording is merely viewed, so for each
+	 * recording whose time is newer than its note's, read the content and
+	 * compare fingerprints. Unchanged ones get the fresh time written to their
+	 * note's frontmatter, and nothing else. Returns the ids that really
+	 * changed; their content is kept for the import that follows. A note with
+	 * no stored fingerprint (written before fingerprints) counts as changed.
+	 * Hold the lock while calling this.
+	 */
+	async checkForChanges(
+		candidates: readonly Recording[],
+		choice: ImportChoice,
+		index: ImportedIndex,
+		cancelled: () => boolean,
+		onProgress?: (done: number, total: number) => void,
+	): Promise<ChangeCheck> {
+		this.prefetched.clear();
+		const changed = new Set<string>();
+		const failures: { recording: Recording; reason: string }[] = [];
+		const versionKey = `${COMU_PROFILE.keyPrefix}-version-ms`;
+		let done = 0;
+		for (const recording of candidates) {
+			if (cancelled()) break;
+			onProgress?.(done++, candidates.length);
+			const record = index.byId.get(
+				index.canonicalId(recording.id) as RecordingId,
+			);
+			if (record === undefined) continue;
+			try {
+				const fetched = await this.fetchForImport(recording, choice);
+				if (cancelled()) break;
+				const stored = await this.storedFingerprint(record.path);
+				if (cancelled()) break;
+				if (fetched.fingerprint !== stored) {
+					changed.add(recording.id);
+					this.prefetched.set(recording.id, fetched);
+					continue;
+				}
+				const file = this.app.vault.getFileByPath(record.path);
+				const version = fetched.version;
+				if (file !== null && version !== undefined) {
+					await this.app.fileManager.processFrontMatter(
+						file,
+						(fm: Record<string, unknown>) => {
+							fm[versionKey] = version;
+						},
+					);
+				}
+			} catch (err) {
+				// A refused key stops everything; anything else costs only
+				// this recording, which keeps its badge and is tried again later.
+				const classification = classifyError(err, COMU_ERROR_POLICY);
+				if (categoryAllowsReauth(classification.category)) throw err;
+				console.error(
+					`Comu importer: could not check ${recording.title} for changes`,
+					err,
+				);
+				failures.push({ recording, reason: classification.message });
+			}
+		}
+		onProgress?.(done, candidates.length);
+		return { changed, failures };
+	}
+
+	/**
 	 * Import `recordings`. Recordings Comu has not processed yet get a
 	 * placeholder note when the setting allows it, and are skipped otherwise.
 	 */
@@ -231,11 +362,45 @@ export class ImportService {
 		return this.runLocked(args);
 	}
 
-	private runLocked(
+	private async runLocked(
 		args: Parameters<ImportService['run']>[0],
 	): ReturnType<typeof runImport> {
 		const options = this.options(args.onDuplicate);
-		const writer = new NoteWriter(this.app.vault, {
+		const fingerprints = new Map<string, string>();
+		const app = this.app;
+		// Store the fingerprint as part of each note's write, so a note and its
+		// fingerprint never disagree, whatever happens later in the batch.
+		class FingerprintingWriter extends NoteWriter {
+			override async writeNote(
+				...params: Parameters<NoteWriter['writeNote']>
+			): ReturnType<NoteWriter['writeNote']> {
+				const outcome = await super.writeNote(...params);
+				const fingerprint = fingerprints.get(params[0].id);
+				const file =
+					outcome.status === 'skipped'
+						? null
+						: app.vault.getFileByPath(outcome.path);
+				if (fingerprint !== undefined && file !== null) {
+					try {
+						await app.fileManager.processFrontMatter(
+							file,
+							(fm: Record<string, unknown>) => {
+								fm[FINGERPRINT_KEY] = fingerprint;
+							},
+						);
+					} catch (err) {
+						// Without it the note is re-checked as changed later:
+						// a re-import, never lost content.
+						console.error(
+							`Comu importer: could not record the content fingerprint for ${outcome.path}`,
+							err,
+						);
+					}
+				}
+				return outcome;
+			}
+		}
+		const writer = new FingerprintingWriter(this.app.vault, {
 			...options,
 			promptOnDuplicate: args.prompt,
 			existingPathForRecordingId: (id) => {
@@ -270,7 +435,10 @@ export class ImportService {
 				)
 			: args.recordings.map(withFreshVersion);
 		const s = this.settings();
-		return runImport({
+		const byId = new Map<string, Recording>(
+			args.recordings.map((r) => [r.id, r]),
+		);
+		const outcome = await runImport({
 			recordings,
 			selection: selectionFor(args.choice),
 			writer,
@@ -282,13 +450,25 @@ export class ImportService {
 			options,
 			fetchArtifacts: async (id) => {
 				if (unprocessed.has(id)) throw new ComuNotProcessedError();
-				const artifacts = await this.client.getArtifacts(id, {
-					summary: args.choice.summary,
-					transcript: args.choice.transcript,
-				});
-				const version = await this.client.getVersionMs(id);
-				if (version !== undefined) fresh.set(id, version);
-				return artifacts;
+				const recording = byId.get(id);
+				if (recording === undefined) {
+					throw new Error(`Recording ${id} is not in this import.`);
+				}
+				const cached = this.prefetched.get(id);
+				this.prefetched.delete(id);
+				// Reuse content the change check just read, but only for the
+				// same choice and while Comu reports the same change time.
+				const fetched =
+					cached !== undefined &&
+					cached.choiceKey === choiceKey(args.choice) &&
+					cached.version !== undefined &&
+					cached.version === (await this.client.getVersionMs(id))
+						? cached
+						: await this.fetchForImport(recording, args.choice);
+				if (fetched.version !== undefined)
+					fresh.set(id, fetched.version);
+				fingerprints.set(id, fetched.fingerprint);
+				return fetched.artifacts;
 			},
 			fetchAudioUrl: (id) => this.client.getAudioUrl(id),
 			applyFold: s.foldTranscript
@@ -308,5 +488,34 @@ export class ImportService {
 					(args.observer?.shouldAbort?.() ?? false),
 			},
 		});
+		// Content read for a check but not imported is not kept for later.
+		this.prefetched.clear();
+		// A note whose audio did not arrive must stay eligible for a retry:
+		// without its fingerprint it counts as changed at the next check.
+		if (args.choice.audio) {
+			for (const result of outcome.results) {
+				if (args.cancelled()) break;
+				if (
+					result.kind !== 'written' ||
+					result.writeOutcome.status === 'skipped'
+				) {
+					continue;
+				}
+				const file = this.app.vault.getFileByPath(
+					result.writeOutcome.path,
+				);
+				if (file === null) continue;
+				const text = await this.app.vault.read(file);
+				if (args.cancelled() || text.includes(AUDIO_START_MARKER))
+					continue;
+				await this.app.fileManager.processFrontMatter(
+					file,
+					(fm: Record<string, unknown>) => {
+						delete fm[FINGERPRINT_KEY];
+					},
+				);
+			}
+		}
+		return outcome;
 	}
 }

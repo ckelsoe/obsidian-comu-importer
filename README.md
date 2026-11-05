@@ -7,6 +7,8 @@ Bring your [Comu](https://comu.com) recordings into Obsidian. Each recording bec
 The plugin uses [Comu's official developer API](https://openapi.comu.com) with an API key you create in the Comu app. It only reads: it cannot change, rename or delete anything in your Comu account.
 
 > This is a community plugin. It is not made or endorsed by Comu.
+>
+> Comu's API cannot tell a real change to a recording from someone viewing it, and it limits each key to 1,000 requests a day. The plugin works around both; see [Comu API limitations and workarounds](#comu-api-limitations-and-workarounds) for what that means for you.
 
 ## Contents
 
@@ -20,7 +22,7 @@ The plugin uses [Comu's official developer API](https://openapi.comu.com) with a
 - [Renaming a recording](#renaming-a-recording)
 - [What a note looks like](#what-a-note-looks-like)
 - [Settings](#settings)
-- [Limits](#limits)
+- [Comu API limitations and workarounds](#comu-api-limitations-and-workarounds)
 - [Troubleshooting](#troubleshooting)
 - [Privacy](#privacy)
 - [Community](#community)
@@ -96,7 +98,7 @@ The list shows your recordings, newest first:
 | Badge | Meaning |
 |---|---|
 | **New** | Not in your vault yet. Checked for you. |
-| **Update available** | Comu changed the recording after you imported it. Checked for you. |
+| **Update available** | The recording's content changed in Comu after you imported it. Checked for you. |
 | **Imported** | Already in your vault and unchanged. |
 | **Not processed yet** | Comu has no transcript or summary yet. With **Placeholder for unprocessed recordings** on, importing it writes a short note with a link to it, which a later import replaces. |
 | **Ignored** | You chose to ignore it. Automatic sync skips it too. |
@@ -105,13 +107,15 @@ The list shows your recordings, newest first:
 - The eye button on a row ignores a recording, or stops ignoring it.
 - **Select new and updated**, **Select all** and **Select none** set the checkboxes.
 
+Comu also marks a recording as changed when someone only views it, so when the window opens it checks the content of each recording Comu marks as changed, and only real changes keep the **Update available** badge. See [No reliable "changed" signal](#no-reliable-changed-signal).
+
 Click **Import**. When a recording was imported before, the plugin follows **When a note already exists**: ask each time, update it, or skip it. Updating rewrites the part between the markers and the plugin's own frontmatter properties.
 
 When the import finishes, the window shows what happened: how many notes are new, updated or skipped, every failure with its reason, any placeholders, and why the import stopped early if it did. **Copy details** copies all of it, for an issue report. After an import with no failures, the results close on their own after a countdown (you can turn that off). Closing the window stops the import after the recording in progress.
 
 ## Automatic sync
 
-Turn on **Sync automatically** and pick an interval. In the background, the plugin imports new recordings and updates the notes of recordings that changed in Comu, using your **What to import** choices. It never asks and never touches an unchanged note. It skips ignored recordings, recordings Comu has not processed yet, and notes you moved out of the output folder. It imports at most 25 recordings per run and pauses once the plugin has used 600 of Comu's 1,000 daily requests on this device. **Comu Importer: Sync new and changed recordings now** runs it on demand.
+Turn on **Sync automatically** and pick an interval. In the background, the plugin imports new recordings and updates the notes of recordings that changed in Comu, using your **What to import** choices. It never asks, and it compares content before updating, so a recording that was only viewed in Comu leaves its note untouched (only its stored change time is refreshed). It skips ignored recordings, recordings Comu has not processed yet, and notes you moved out of the output folder. It imports at most 25 recordings per run, and waits while the plugin has sent 600 or more requests in the last 24 hours (see [Daily request allowance](#daily-request-allowance)). **Comu Importer: Sync new and changed recordings now** runs it on demand.
 
 If Comu refuses the API key, sync pauses until you save a working key.
 
@@ -196,12 +200,51 @@ Tokens use [Moment formats](https://momentjs.com/docs/#/displaying/format/) in d
 
 **Troubleshooting**: debug logging to the developer console. Your API key is never logged.
 
-## Limits
+## Comu API limitations and workarounds
 
-- **Daily request limit.** Comu allows 1,000 API requests per rolling 24 hours per key. Importing one recording takes about five requests (six with audio), and listing takes one per 100 recordings, so the first import of a very large library may need to be spread over more than one day. Automatic sync pauses once the plugin has used 600 requests in a day on this device, leaving room for imports you start. Requests Comu refuses for the limit show up as failures with Comu's reason; wait and import the rest later.
-- **"Update available" after viewing.** Comu marks a recording as changed when it is opened, including in the Comu app. A recording you have viewed since importing it shows **Update available**, and automatic sync re-imports it. The plugin's own reads do not cause this: it stores the change time Comu reports after reading.
-- **Times.** Comu does not report the time zone a recording was made in, so times are shown in your computer's zone.
-- **Action items need permission.** **Save** refuses a key that cannot read action items, and says so. Create a key with note and action item access.
+Comu's developer API is new and has gaps that affect an importer. Here is each one, and what the plugin does about it for now. If Comu closes a gap, the workaround goes away.
+
+### No reliable "changed" signal
+
+**The limitation.** Comu reports a change time for each recording, but it also moves when the recording is only viewed: the first time anyone opens its summary, in the Comu app or through the API, the change time jumps even though nothing in the recording changed. The API has no other field that changes only when content does. On its own, the change time would mark recordings as **Update available** after you merely looked at them, and automatic sync would re-import them again and again.
+
+**The workaround.** Each note records a fingerprint of what it was built from, in the `comu-content-hash` property. When Comu's change time for a recording is newer than its note's, the plugin reads that recording again and compares fingerprints:
+
+- Same content: the note is left alone. Only its stored change time (`comu-version-ms`) is updated, so the recording is not checked again until Comu's time moves once more.
+- Different content: it is a real change. The window shows **Update available**, and sync updates the note, reusing the content it just read.
+
+**What it costs you.**
+
+- Each check reads the recording, about five requests, so viewing many recordings in the Comu app makes the next check use more of the daily allowance below. The import window shows "Checking N recordings…" while it does this.
+- Notes imported before version 0.1.1 have no fingerprint, so the next time Comu marks one changed it counts as changed. Automatic sync then updates it, which records a fingerprint. In the import window it follows **When a note already exists**; if you skip it, it stays without a fingerprint and is marked again next time.
+- The import window checks at most 20 recordings each time it opens, newest first. Any others Comu marks as changed keep **Update available**; they can still be imported, and the next opening checks them.
+- If an audio download fails, the note keeps no fingerprint, so a later check retries it.
+- The fingerprint also covers the recording's title, start time and length, and what you chose under **What to import**. After you change that choice, a recording checked later counts as changed once and is re-imported with the new choice.
+- A recording that cannot be checked (for example a Comu error) keeps **Update available** and is checked again next time; the others are still checked.
+
+### Daily request allowance
+
+**The limitation.** Comu allows 1,000 requests per rolling 24 hours per API key. Importing one recording takes about five (six with audio), and listing takes one per 100 recordings, which is the most Comu returns per request.
+
+**The workaround.** The plugin counts the requests it sends while Obsidian is running (the count starts again when Obsidian restarts). Before each automatic sync it checks that count, and if 600 or more were sent in the last 24 hours, the sync waits; a sync that starts below 600 can go somewhat past it. Each sync imports at most 25 recordings. This leaves most of the rest of the allowance for imports you start. A very large first import may need to be spread over more than one day; requests Comu refuses for the limit appear as failures with Comu's reason. Requests made from another device or tool with the same key also count toward Comu's limit but are not visible to the plugin.
+
+### Errors under load
+
+**The limitation.** Comu's gateway answers some requests with an HTTP 502 error when several arrive at the same time.
+
+**The workaround.** The plugin sends one request at a time and retries a 502, 503 or 504 twice (after half a second, then after 1.5 seconds), the bound Comu's documentation gives for read requests. A recording that still fails is listed in the import results with the reason, and nothing is written for it.
+
+### Read-only
+
+**The limitation.** The API has no way to change anything in your account.
+
+**The workaround.** None needed for importing. It does mean **Rename recording** renames only the note and its `-assets` folder; the title in Comu stays as it is.
+
+### Other gaps
+
+- **Time zone.** Comu does not report the time zone a recording was made in, so times are written in the zone set under **Time zone**, or your computer's.
+- **Membership.** API keys need a Premium or Elite membership. The Starter plan cannot use the plugin.
+- **Permissions.** A key needs note and action-item access. **Save** refuses a key without action-item access and says so, because importing without action items would remove the ones a note already has.
 - **Not imported yet:** your own notes typed in the Comu app, Comu's folders, the visual summary, and contacts.
 
 ## Troubleshooting

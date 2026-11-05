@@ -23,7 +23,8 @@ export function audioExtension(url: string): string {
 // The audio section sits between its own markers so a re-import finds and
 // replaces exactly what this plugin wrote, never a section the user or Comu
 // happens to call "Audio".
-const AUDIO_START = '<!-- comu:audio:start -->';
+export const AUDIO_START_MARKER = '<!-- comu:audio:start -->';
+const AUDIO_START = AUDIO_START_MARKER;
 const AUDIO_END = '<!-- comu:audio:end -->';
 
 /**

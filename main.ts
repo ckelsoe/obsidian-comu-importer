@@ -269,9 +269,23 @@ export default class ComuImporterPlugin extends Plugin {
 								r.kind === 'placeholder-written',
 						).length;
 					};
+					// Comu's change time also moves when a recording is only
+					// viewed; update just the ones whose content changed.
+					const check = await this.imports.checkForChanges(
+						changedRecs,
+						choice,
+						index,
+						() => this.unloaded,
+					);
+					for (const f of check.failures) {
+						failures.push(`${f.recording.title}: ${f.reason}`);
+					}
 					return {
 						imported: await count(newRecs, 'skip'),
-						updated: await count(changedRecs, 'overwrite'),
+						updated: await count(
+							changedRecs.filter((r) => check.changed.has(r.id)),
+							'overwrite',
+						),
 					};
 				},
 				pageSize: Number.MAX_SAFE_INTEGER,

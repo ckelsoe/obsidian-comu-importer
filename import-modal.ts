@@ -35,6 +35,9 @@ import type { ComuImporterSettings } from './settings';
 
 type RowState = 'new' | 'imported' | 'update' | 'not-ready';
 
+/** Most recordings the window checks for real changes each time it opens. */
+const MAX_CHECKS_PER_OPEN = 20;
+
 /** What the shared runner reports for one run. */
 type ImportRunOutcome = Awaited<ReturnType<typeof runImport>>;
 
@@ -131,6 +134,12 @@ export class ImportModal extends Modal {
 	private readonly checked = new Set<string>();
 	private index: ImportedIndex | null = null;
 	private moved: ReadonlySet<string> = new Set();
+	/** Rows checked by the window itself, not by the user. */
+	private readonly autoSelected = new Set<string>();
+	/** Recordings checked this session whose content had not changed. */
+	private readonly unchanged = new Set<string>();
+	/** True while comparing content of recordings Comu reports as changed. */
+	private checking = false;
 	private running = false;
 	private closed = false;
 	private listEl: HTMLElement | null = null;
@@ -168,6 +177,7 @@ export class ImportModal extends Modal {
 	onClose(): void {
 		this.closed = true;
 		this.stopCountdown();
+		if (!this.running) this.deps.imports.discardPrefetched();
 		// An open question must not outlive the window and approve a write.
 		this.prompt?.decide('cancel');
 		this.contentEl.empty();
@@ -185,6 +195,7 @@ export class ImportModal extends Modal {
 			this.rebuildIndex();
 			this.selectNewAndUpdated();
 			this.render();
+			await this.checkUpdates();
 		} catch (err) {
 			if (this.closed) return;
 			console.error('Comu importer: could not list recordings', err);
@@ -204,9 +215,12 @@ export class ImportModal extends Modal {
 	}
 
 	private stateOf(recording: Recording): RowState {
-		return this.index === null
-			? 'new'
-			: rowState(recording, this.index, this.moved);
+		if (this.index === null) return 'new';
+		const state = rowState(recording, this.index, this.moved);
+		// Comu reported a newer change time, but the content is the same.
+		return state === 'update' && this.unchanged.has(recording.id)
+			? 'imported'
+			: state;
 	}
 
 	private isIgnored(recording: Recording): boolean {
@@ -220,6 +234,76 @@ export class ImportModal extends Modal {
 		);
 	}
 
+	/**
+	 * Comu's change time moves when a recording is only viewed, so read the
+	 * content of each recording marked Update available and keep the badge
+	 * only where the content really changed. Skipped when another import or a
+	 * sync holds the lock; those rows then keep the badge.
+	 */
+	private async checkUpdates(): Promise<void> {
+		const index = this.index;
+		if (index === null) return;
+		// Checking costs about 5 requests a recording. Check the newest few
+		// and leave the rest marked, still importable, so the window cannot use
+		// up the daily allowance before an import starts.
+		const suspects = this.recordings
+			.filter((r) => this.stateOf(r) === 'update')
+			.slice(0, MAX_CHECKS_PER_OPEN);
+		if (suspects.length === 0) return;
+		if (!this.deps.imports.tryLock()) return;
+		this.checking = true;
+		// The check reads content for the current choice; keep it fixed meanwhile.
+		this.setChoiceEnabled(false);
+		this.updateImportButton();
+		try {
+			const check = await this.deps.imports.checkForChanges(
+				suspects,
+				this.choice,
+				index,
+				() => this.closed,
+				(done, total) => {
+					this.countEl?.setText(
+						`Checking ${total} recordings Comu marks as changed (${done} of ${total})…`,
+					);
+				},
+			);
+			const failed = new Set(check.failures.map((f) => f.recording.id));
+			for (const r of suspects) {
+				// A recording that could not be checked keeps its badge.
+				if (!check.changed.has(r.id) && !failed.has(r.id)) {
+					this.unchanged.add(r.id);
+					// Only an automatic selection is undone; a pick by hand stays.
+					if (this.autoSelected.has(r.id)) this.checked.delete(r.id);
+				}
+			}
+			if (check.failures.length > 0) {
+				new Notice(
+					`Comu importer: ${check.failures.length} recordings could not be checked for changes and stay marked as updated. First: ${check.failures[0]?.reason ?? ''}`,
+				);
+			}
+		} catch (err) {
+			// Rows keep their badge; the import still verifies nothing is lost.
+			console.error('Comu importer: could not check for changes', err);
+			new Notice(
+				'Comu importer: could not check which recordings really changed, so some marked as updated may be unchanged.',
+			);
+		} finally {
+			this.checking = false;
+			this.deps.imports.unlock();
+		}
+		if (this.closed) return;
+		this.setChoiceEnabled(true);
+		this.renderList();
+	}
+
+	private setChoiceEnabled(enabled: boolean): void {
+		this.contentEl
+			.querySelectorAll<HTMLInputElement>('.comu-importer-choice input')
+			.forEach((box) => {
+				box.disabled = !enabled;
+			});
+	}
+
 	/** Uncheck rows that can no longer be imported, after the index changed. */
 	private dropIneligible(): void {
 		for (const r of this.recordings) {
@@ -229,11 +313,15 @@ export class ImportModal extends Modal {
 
 	private selectNewAndUpdated(): void {
 		this.checked.clear();
+		this.autoSelected.clear();
 		for (const r of this.visible()) {
 			// An ignored recording is only imported when picked by hand.
 			if (this.isIgnored(r)) continue;
 			const state = this.stateOf(r);
-			if (state === 'new' || state === 'update') this.checked.add(r.id);
+			if (state === 'new' || state === 'update') {
+				this.checked.add(r.id);
+				this.autoSelected.add(r.id);
+			}
 		}
 	}
 
@@ -279,6 +367,8 @@ export class ImportModal extends Modal {
 					for (const r of this.visible()) {
 						if (this.canCheck(r)) this.checked.add(r.id);
 					}
+					// Picked on purpose now: the change check leaves them checked.
+					this.autoSelected.clear();
 					this.renderList();
 				}),
 			)
@@ -372,6 +462,7 @@ export class ImportModal extends Modal {
 		box.addEventListener('change', () => {
 			if (box.checked) this.checked.add(recording.id);
 			else this.checked.delete(recording.id);
+			this.autoSelected.delete(recording.id);
 			this.updateImportButton();
 		});
 		const text = label.createDiv({ cls: 'comu-importer-row-text' });
@@ -412,6 +503,11 @@ export class ImportModal extends Modal {
 	private updateImportButton(): void {
 		const button = this.importButton;
 		if (button === null || this.running) return;
+		if (this.checking) {
+			button.setButtonText('Checking for changes…');
+			button.setDisabled(true);
+			return;
+		}
 		const visible = new Set<string>(this.visible().map((r) => r.id));
 		const n = [...this.checked].filter((id) => visible.has(id)).length;
 		const nothing =
@@ -436,7 +532,7 @@ export class ImportModal extends Modal {
 	}
 
 	private async importChecked(): Promise<void> {
-		if (this.running) return;
+		if (this.running || this.checking) return;
 		const selected = this.visible().filter((r) => this.checked.has(r.id));
 		if (selected.length === 0) return;
 		if (this.index === null) {
