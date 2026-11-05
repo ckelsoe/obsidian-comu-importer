@@ -9,6 +9,7 @@ import {
 	ComuApiError,
 	ComuAuthError,
 	ComuClient,
+	ComuNotProcessedError,
 	normalizeKey,
 	unwrapEnvelope,
 } from '../comu-client';
@@ -266,5 +267,45 @@ describe('COMU_ERROR_POLICY', () => {
 		expect(cat(new ComuApiError('x', 503))).toBe('server-error');
 		expect(cat(new ComuApiError('x', 400))).toBe('api-error');
 		expect(cat(new ComuParseError('x'))).toBe('parse-error');
+	});
+});
+
+describe('missing permissions (HTTP 403)', () => {
+	it('is not treated as a bad key, so a batch is not stopped as signed out', () => {
+		let thrown: unknown;
+		try {
+			unwrapEnvelope(403, { code: 403, success: false }, true);
+		} catch (err) {
+			thrown = err;
+		}
+		expect(thrown).toBeInstanceOf(ComuApiError);
+		expect(classifyError(thrown, COMU_ERROR_POLICY).category).toBe(
+			'api-error',
+		);
+	});
+
+	it('fails the recording, with the reason, when the key cannot read action items', async () => {
+		const server = fakeServer((req) => {
+			const p = path(req);
+			if (p === '/v1/todo/list/queryByNote')
+				return { status: 403, json: {} };
+			if (p === '/v1/note/querySummary')
+				return { status: 200, json: ok(SUMMARY_DATA) };
+			if (p === '/v1/note/queryOutlines')
+				return { status: 200, json: ok(OUTLINE_DATA) };
+			return { status: 200, json: ok(TRANSCRIPT_DATA) };
+		});
+		// Importing without them would delete the action items a note already has.
+		await expect(
+			new ComuClient(() => 't', server.request).getArtifacts(id),
+		).rejects.toThrow(/action items/);
+	});
+});
+
+describe('unprocessed recordings', () => {
+	it('are reported as unprocessed, so the runner writes a placeholder', () => {
+		const err = new ComuNotProcessedError();
+		expect(COMU_ERROR_POLICY.isUnprocessed(err)).toBe(true);
+		expect(COMU_ERROR_POLICY.isUnprocessed(new Error('x'))).toBe(false);
 	});
 });

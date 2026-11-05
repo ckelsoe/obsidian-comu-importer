@@ -33,4 +33,27 @@ declare module 'obsidian' {
 	interface PluginManifest {
 		version: string;
 	}
+
+	/**
+	 * Obsidian's internal per-file fold store (undocumented; same shape Plaud
+	 * Importer types). Used to open an imported note with its transcript
+	 * collapsed. Optional, and checked at the call site.
+	 */
+	interface FoldPosition {
+		from: number;
+		to: number;
+	}
+	interface FoldInfo {
+		folds: FoldPosition[];
+		lines: number;
+	}
+	interface FoldManager {
+		save(file: import('obsidian').TFile, foldInfo: FoldInfo): Promise<void>;
+	}
+	interface App {
+		foldManager?: FoldManager;
+	}
+	interface MarkdownSubView {
+		applyFoldInfo?(foldInfo: FoldInfo): void;
+	}
 }

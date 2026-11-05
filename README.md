@@ -16,6 +16,8 @@ The plugin uses [Comu's official developer API](https://openapi.comu.com) with a
 - [Installation](#installation)
 - [Connect your Comu account](#connect-your-comu-account)
 - [Importing](#importing)
+- [Automatic sync](#automatic-sync)
+- [Renaming a recording](#renaming-a-recording)
 - [What a note looks like](#what-a-note-looks-like)
 - [Settings](#settings)
 - [Limits](#limits)
@@ -35,6 +37,9 @@ The plugin uses [Comu's official developer API](https://openapi.comu.com) with a
   - **Action items** as Obsidian tasks (`- [ ]`), with the person each one belongs to;
   - the **Transcript**, with a clickable chapter list from Comu's outline.
 - Optionally downloads the audio into a `-assets` folder next to the note and embeds it.
+- Files notes into folders and names them from templates you build with insert buttons and a live preview.
+- Syncs new and changed recordings in the background, if you turn it on.
+- Renames an imported note together with its `-assets` folder.
 - Works on desktop and mobile.
 
 ## What it will not do
@@ -42,7 +47,7 @@ The plugin uses [Comu's official developer API](https://openapi.comu.com) with a
 - **It never writes to Comu.** Comu's API is read-only, and the plugin calls only its query endpoints.
 - **It never overwrites a note it did not write.** If a note with the same name exists and was not imported by this plugin, the new note is saved beside it with " 2" added to the name.
 - **It keeps your own writing.** The note body the plugin writes sits between two hidden markers. Text you add above or below them stays when you import the recording again. The plugin's own frontmatter properties (`comu-id`, `date`, `speakers` and the rest) are rewritten on each import; properties you add yourself are kept.
-- **It touches only its output folder.** Notes and audio go into the folder you choose and nowhere else.
+- **It writes only into its output folder.** Notes and audio go into the folder you choose. The one exception is renaming: if you move an imported note elsewhere and rename it, its `-assets` folder moves with it.
 - **It does not phone home.** No telemetry, no analytics. The only server it talks to is Comu's.
 
 ## Requirements
@@ -82,20 +87,37 @@ To disconnect, click **Remove key**. To revoke the key everywhere, delete it in 
 
 ## Importing
 
-Click the microphone in the left ribbon, or run **Comu Importer: Import recordings** from the command palette.
+Click the ribbon button (a vocal mic by default; its tooltip reads **Comu importer: import recordings**), or run **Comu Importer: Import recordings** from the command palette.
 
-The import window lists your recordings, newest first:
+At the top of the import window, choose what to import: **Summary, insights, action items**, **Transcript**, **Audio**. The starting choice comes from **What to import** in the settings.
+
+The list shows your recordings, newest first:
 
 | Badge | Meaning |
 |---|---|
 | **New** | Not in your vault yet. Checked for you. |
 | **Update available** | Comu changed the recording after you imported it. Checked for you. |
 | **Imported** | Already in your vault and unchanged. |
-| **Not processed yet** | Comu has no transcript or summary yet. Try again later. |
+| **Not processed yet** | Comu has no transcript or summary yet. With **Placeholder for unprocessed recordings** on, importing it writes a short note with a link to it, which a later import replaces. |
+| **Ignored** | You chose to ignore it. Automatic sync skips it too. |
 
-Use **Select new and updated** or **Select none**, tick the recordings you want, and click **Import**. Closing the window stops the import after the recording in progress.
+- **Hide** filters: imported, updates, ignored. Your choice is remembered.
+- The eye button on a row ignores a recording, or stops ignoring it.
+- **Select new and updated**, **Select all** and **Select none** set the checkboxes.
 
-When a recording was imported before, the plugin follows **When a note already exists**: ask each time, update it, or skip it. Updating rewrites the part between the markers and the plugin's own frontmatter properties.
+Click **Import**. When a recording was imported before, the plugin follows **When a note already exists**: ask each time, update it, or skip it. Updating rewrites the part between the markers and the plugin's own frontmatter properties.
+
+When the import finishes, the window shows what happened: how many notes are new, updated or skipped, every failure with its reason, any placeholders, and why the import stopped early if it did. **Copy details** copies all of it, for an issue report. After an import with no failures, the results close on their own after a countdown (you can turn that off). Closing the window stops the import after the recording in progress.
+
+## Automatic sync
+
+Turn on **Sync automatically** and pick an interval. In the background, the plugin imports new recordings and updates the notes of recordings that changed in Comu, using your **What to import** choices. It never asks and never touches an unchanged note. It skips ignored recordings and recordings Comu has not processed yet, and imports at most 25 recordings per run to stay within Comu's daily limit. **Comu Importer: Sync new and changed recordings now** runs it on demand.
+
+If Comu refuses the API key, sync pauses until you save a working key.
+
+## Renaming a recording
+
+Run **Comu Importer: Rename recording** on an imported note, or right-click it and choose **Rename imported recording**. The note and its `-assets` folder are renamed together. Renaming the note any other way in Obsidian also moves its `-assets` folder. The title in Comu does not change: Comu's API cannot rename recordings.
 
 ## What a note looks like
 
@@ -138,21 +160,47 @@ source: comu
 
 ## Settings
 
+**Connection**
+
 | Setting | What it does |
 |---|---|
-| API key | Your Comu API key. Checked with Comu, then kept in secret storage. |
+| API key | Your Comu API key. Checked with Comu, then kept in secret storage. **Test connection** and **Remove key** appear once it is saved. |
+
+**Output**
+
+| Setting | What it does |
+|---|---|
 | Output folder | Where notes are created. Default `Comu`. |
-| Subfolder template | Optional folders under the output folder, from the recording's date. Tokens use [Moment formats](https://momentjs.com/docs/#/displaying/format/) in double braces: `{{YYYY}}/{{MM}}` gives `2026/11`. |
-| Note name template | Optional. Default `{{YYYY}}-{{MM}}-{{DD}} {{title}}`. `{{title}}` is the recording's title. |
+| Subfolder template | Folders under the output folder, from the recording's date or title. Insert buttons add tokens at the cursor, and a live preview shows the folder you will get. Default `{{YYYY}}/{{MM}}`. |
+| Note name template | Each note's name. Same insert buttons and preview, plus ISO, US and EU presets. Default `{{YYYY}}-{{MM}}-{{DD}} {{title}}`. A template that would make an invalid file name is not saved. |
+| Datetime property | Optional `datetime:` property in any format, for example `{{YYYY-MM-DD HH:mm}}`. |
+| Time zone | The zone times are written in. Comu does not report the zone a recording was made in; empty uses this device's zone. |
+| Extra frontmatter | Your own properties, plain or with tokens. **Preserve** keeps your edited value on re-import. A live preview shows the result. |
+| Keep properties you add | On re-import, keep frontmatter properties the plugin does not manage. On by default. |
+| Replacement character | Replaces characters a file name cannot contain. Default `-`. |
 | When a note already exists | Ask each time, update it, or skip it. |
-| Transcript layout | Under a heading, in a callout, or in a separate `Transcript.md` file (embedded or linked). |
-| Download audio | Save each recording's audio in the note's `-assets` folder and embed it. |
-| Show trashed recordings | Also list recordings in Comu's trash. |
+
+Tokens use [Moment formats](https://momentjs.com/docs/#/displaying/format/) in double braces, for example `{{YYYY}}`, `{{MM}}`, `{{MMMM}}`, `{{DD}}`, `{{dddd}}`, `{{WW}}`, `{{Q}}`, plus `{{title}}`.
+
+**What to import**: summary, insights and action items; transcript; audio. These are the starting choice in the import window and what automatic sync imports.
+
+**Transcript**: layout (under a heading, in a collapsed callout, or in a separate `Transcript.md`, embedded or linked), fold the transcript when a note is written, and the transcript heading level.
+
+**Tags**: your own comma-separated tags, or none.
+
+**Import window**: placeholder notes for unprocessed recordings, closing the results automatically and the countdown, and showing trashed recordings.
+
+**Automatic sync**: on or off, and the interval (30 minutes to once a day).
+
+**Appearance**: show or hide the ribbon button, and pick its icon.
+
+**Troubleshooting**: debug logging to the developer console. Your API key is never logged.
 
 ## Limits
 
-- **Daily request limit.** Comu allows 1,000 API requests per rolling 24 hours per key. Importing one recording takes about four requests, so the first import of a very large library may need to be spread over more than one day. When the limit is reached, the plugin says so; wait and import the rest later.
+- **Daily request limit.** Comu allows 1,000 API requests per rolling 24 hours per key. Importing one recording takes about four requests, so the first import of a very large library may need to be spread over more than one day. Requests Comu refuses for the limit show up as failures with Comu's reason; wait and import the rest later.
 - **Times.** Comu does not report the time zone a recording was made in, so times are shown in your computer's zone.
+- **Action items need permission.** If your API key cannot read action items, each recording fails with a message saying so, rather than being imported without them (which would delete action items an earlier import saved). Create a key with action item access.
 - **Not imported yet:** your own notes typed in the Comu app, Comu's folders, the visual summary, and contacts.
 
 ## Troubleshooting
@@ -160,7 +208,8 @@ source: comu
 - **"Comu rejected the API key"**: the key was mistyped, revoked, or your plan no longer includes Developers access. Create a new key in the Comu app and save it again.
 - **"Comu could not check your membership just now"**: a temporary problem on Comu's side. Try again in a few minutes.
 - **A recording shows "Not processed yet"**: Comu is still transcribing or summarizing it.
-- **Something else**: open the developer console (Ctrl+Shift+I, or Cmd+Option+I on a Mac); every error is logged there with its details. Please include them in an [issue](https://github.com/ckelsoe/obsidian-comu-importer/issues), with your API key removed.
+- **An import shows failures**: the results list the reason for each one. **Copy details** copies them.
+- **Something else**: turn on **Debug logging**, open the developer console (Ctrl+Shift+I, or Cmd+Option+I on a Mac); every error is logged there with its details. Please include them in an [issue](https://github.com/ckelsoe/obsidian-comu-importer/issues), with your API key removed.
 
 ## Privacy
 

@@ -12,6 +12,19 @@
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
+.comu-importer-row-main {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-3);
+	flex: 1;
+	min-width: 0;
+	cursor: pointer;
+}
+
+.comu-importer-row.is-ignored .comu-importer-row-text {
+	opacity: 0.55;
+}
+
 .comu-importer-row-text {
 	flex: 1;
 	min-width: 0;
@@ -66,4 +79,92 @@
 
 .comu-importer-footer-separator {
 	color: var(--text-faint);
+}
+
+.comu-importer-choice,
+.comu-importer-filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2) var(--size-4-4);
+	margin-bottom: var(--size-4-2);
+}
+
+.comu-importer-choice label,
+.comu-importer-filters label {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	cursor: pointer;
+}
+
+.comu-importer-count,
+.comu-importer-empty {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.comu-importer-failures li {
+	margin-bottom: var(--size-4-1);
+}
+
+/* Settings: a row whose controls sit full width under its description. */
+.comu-importer-stacked-row {
+	flex-wrap: wrap;
+}
+
+.comu-importer-stacked-row .setting-item-info {
+	flex-basis: 100%;
+	margin-bottom: var(--size-4-2);
+}
+
+.comu-importer-stacked-row .setting-item-control {
+	flex-basis: 100%;
+	flex-wrap: wrap;
+	justify-content: flex-start;
+	gap: var(--size-4-1);
+}
+
+.comu-importer-stacked-row .setting-item-control input[type='text'] {
+	flex: 1 1 100%;
+}
+
+.comu-importer-template-doc ul {
+	margin: var(--size-4-1) 0;
+}
+
+.comu-importer-template-preview {
+	flex-basis: 100%;
+	white-space: pre-wrap;
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+}
+
+.comu-importer-frontmatter-rows {
+	flex-basis: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.comu-importer-frontmatter-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.comu-importer-frontmatter-row input[type='text'] {
+	flex: 1;
+}
+
+.comu-importer-frontmatter-keep {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.comu-importer-ribbon-preview {
+	display: inline-flex;
+	color: var(--text-muted);
 }

@@ -40,6 +40,14 @@ export class ComuAuthError extends Error {
 	}
 }
 
+/** Comu has no transcript or summary for the recording yet. */
+export class ComuNotProcessedError extends Error {
+	constructor() {
+		super('Comu has not finished processing this recording yet.');
+		this.name = 'ComuNotProcessedError';
+	}
+}
+
 /** Comu answered with an HTTP error or `success: false`. */
 export class ComuApiError extends Error {
 	constructor(
@@ -91,7 +99,14 @@ export function unwrapEnvelope(
 		typeof body === 'object' && body !== null
 			? (body as Record<string, unknown>)['code']
 			: undefined;
-	if (status === 401 || status === 403 || code === CODE_BAD_TOKEN) {
+	if (status === 403) {
+		// A valid key without the scope this endpoint needs.
+		throw new ComuApiError(
+			'This API key is not allowed to read this. Create a key with note and action item access in the Comu app.',
+			403,
+		);
+	}
+	if (status === 401 || code === CODE_BAD_TOKEN) {
 		throw new ComuAuthError(
 			'Comu rejected the API key. Check it in the plugin settings; a revoked key, or a membership without Developers access, is refused.',
 		);
@@ -266,7 +281,17 @@ export class ComuClient {
 					'/v1/todo/list/queryByNote',
 					{ noteId: id },
 					false,
-				),
+				).catch((err: unknown) => {
+					// Fail the recording rather than import it without action
+					// items: a re-import would drop the ones its note already has.
+					if (err instanceof ComuApiError && err.status === 403) {
+						throw new ComuApiError(
+							'This API key cannot read action items. Create a key with action item access in the Comu app, then import again.',
+							403,
+						);
+					}
+					throw err;
+				}),
 			]);
 		const parsed = parseSummary(summaryData);
 		const summary: Summary | null =
@@ -296,6 +321,13 @@ export const COMU_ERROR_POLICY: ServiceErrorPolicy = {
 				canRetry: false,
 			};
 		}
+		if (err instanceof ComuNotProcessedError) {
+			return {
+				category: 'api-error',
+				message: err.message,
+				canRetry: true,
+			};
+		}
 		if (err instanceof ComuApiError) {
 			if (err.status === 429) {
 				return {
@@ -320,7 +352,5 @@ export const COMU_ERROR_POLICY: ServiceErrorPolicy = {
 		}
 		return null;
 	},
-	// The import list already skips recordings Comu has not processed, so no
-	// error means "not processed yet".
-	isUnprocessed: () => false,
+	isUnprocessed: (err: unknown) => err instanceof ComuNotProcessedError,
 };
