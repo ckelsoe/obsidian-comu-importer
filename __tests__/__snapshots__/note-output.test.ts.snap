@@ -1,0 +1,66 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`Comu note output matches the stored format 1`] = `
+"---
+comu-id: "4d4b0c1e-0000-4000-8000-000000000001"
+comu-url: "https://web.comu.com/all-files/note/4d4b0c1e-0000-4000-8000-000000000001"
+date: 2026-11-03
+start-time: "2026-11-03T19:57:21+00:00"
+end-time: "2026-11-03T20:33:57+00:00"
+duration-seconds: 2196
+duration: "37m"
+speakers: [Alex, Sam]
+source: comu
+comu-version-ms: 1793891425000
+---
+
+<!-- comu:managed:start -->
+
+# 2026-11-03 Weekly planning
+
+[Open in Comu →](https://web.comu.com/all-files/note/4d4b0c1e-0000-4000-8000-000000000001)
+
+## Summary
+
+### Overview of the call
+
+A short planning call.
+
+### Overview
+- Agreed the plan
+
+## Insights
+
+### Key points
+
+- **Owner**
+  - Alex leads
+
+## Action items
+
+- [ ] Send the agenda (Sam)
+- [x] Book the room
+
+---
+
+#### Transcript
+
+##### Chapters
+
+- [[#00:01 Opening|**[00:01]** Opening]]
+- **[01:47]** Planning
+
+^comu-chapters
+
+---
+
+##### 00:01 Opening
+
+[[#^comu-chapters|Back to Chapters]]
+
+**[00:01]** Alex: Good morning.
+**[00:03]** Sam: Morning, let us start.
+
+<!-- comu:managed:end -->
+"
+`;
