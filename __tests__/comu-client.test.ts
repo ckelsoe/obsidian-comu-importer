@@ -309,3 +309,89 @@ describe('unprocessed recordings', () => {
 		expect(COMU_ERROR_POLICY.isUnprocessed(new Error('x'))).toBe(false);
 	});
 });
+
+describe('gateway errors', () => {
+	const noWait = () => Promise.resolve();
+
+	it('retries a 502, 503 or 504 up to twice', async () => {
+		const statuses = [502, 504, 200];
+		const server = fakeServer(() => {
+			const status = statuses.shift() ?? 200;
+			return {
+				status,
+				json: status === 200 ? ok({ data: [], total: 0 }) : {},
+			};
+		});
+		await new ComuClient(
+			() => 't',
+			server.request,
+			noWait,
+		).testConnection();
+		expect(server.calls).toHaveLength(3);
+	});
+
+	it('gives up after three attempts with the gateway error', async () => {
+		const server = fakeServer(() => ({ status: 502, json: {} }));
+		await expect(
+			new ComuClient(() => 't', server.request, noWait).testConnection(),
+		).rejects.toThrow(/502/);
+		expect(server.calls).toHaveLength(3);
+	});
+
+	it('does not retry other errors', async () => {
+		const server = fakeServer(() => ({ status: 500, json: {} }));
+		await expect(
+			new ComuClient(() => 't', server.request, noWait).testConnection(),
+		).rejects.toThrow(/500/);
+		expect(server.calls).toHaveLength(1);
+	});
+
+	it('fetches a recording one request at a time', async () => {
+		let inFlight = 0;
+		let most = 0;
+		const request = async (req: { url: string }) => {
+			inFlight++;
+			most = Math.max(most, inFlight);
+			await Promise.resolve();
+			inFlight--;
+			const p = req.url.slice(COMU_API_BASE.length).split('?')[0] ?? '';
+			const data: Record<string, unknown> = {
+				'/v1/note/queryTranscribeResult': TRANSCRIPT_DATA,
+				'/v1/note/querySummary': SUMMARY_DATA,
+				'/v1/note/queryOutlines': OUTLINE_DATA,
+				'/v1/todo/list/queryByNote': TODO_DATA,
+			};
+			return { status: 200, json: ok(data[p]) };
+		};
+		await new ComuClient(() => 't', request).getArtifacts(id);
+		expect(most).toBe(1);
+	});
+});
+
+describe('getVersionMs', () => {
+	it("reads the recording's current change time from the list", async () => {
+		const server = fakeServer(() => ({
+			status: 200,
+			json: ok({
+				data: [{ ...LIST_ITEM, updateTime: '2026-11-05T16:00:00Z' }],
+				total: 1,
+			}),
+		}));
+		expect(
+			await new ComuClient(() => 't', server.request).getVersionMs(id),
+		).toBe(Date.parse('2026-11-05T16:00:00Z'));
+		expect(JSON.parse(server.calls[0]?.body as string)).toMatchObject({
+			noteId: NOTE_ID,
+		});
+	});
+
+	it('returns undefined when the list does not hold that recording', async () => {
+		const server = fakeServer(() => ({
+			status: 200,
+			json: ok({ data: [], total: 0 }),
+		}));
+		expect(
+			await new ComuClient(() => 't', server.request).getVersionMs(id),
+		).toBeUndefined();
+	});
+});

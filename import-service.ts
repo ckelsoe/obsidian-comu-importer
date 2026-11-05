@@ -225,6 +225,19 @@ export class ImportService {
 				);
 			},
 		});
+		const unprocessed = new Set(
+			args.recordings.filter(isUnprocessed).map((r) => r.id),
+		);
+		// Comu moves a recording's updateTime when its content is read, so the
+		// marker a note stores is the one read after the content. The shared
+		// runner copies the recording after fetchArtifacts resolves, so a getter
+		// lets the fresher value reach the note.
+		const fresh = new Map<string, number>();
+		const withFreshVersion = (r: Recording): Recording =>
+			Object.defineProperty({ ...r }, 'versionMs', {
+				enumerable: true,
+				get: () => fresh.get(r.id) ?? r.versionMs,
+			});
 		const placeholders = options.writePlaceholderForUnprocessed !== false;
 		// Let unprocessed recordings reach the fetch, which reports them as
 		// unprocessed so the runner writes their placeholder.
@@ -232,12 +245,9 @@ export class ImportService {
 			? args.recordings.map((r) =>
 					isUnprocessed(r)
 						? { ...r, contentAvailabilityUnknown: true }
-						: r,
+						: withFreshVersion(r),
 				)
-			: args.recordings;
-		const unprocessed = new Set(
-			args.recordings.filter(isUnprocessed).map((r) => r.id),
-		);
+			: args.recordings.map(withFreshVersion);
 		const s = this.settings();
 		return runImport({
 			recordings,
@@ -249,10 +259,13 @@ export class ImportService {
 				args.cancelled,
 			),
 			options,
-			fetchArtifacts: (id) =>
-				unprocessed.has(id)
-					? Promise.reject(new ComuNotProcessedError())
-					: this.client.getArtifacts(id),
+			fetchArtifacts: async (id) => {
+				if (unprocessed.has(id)) throw new ComuNotProcessedError();
+				const artifacts = await this.client.getArtifacts(id);
+				const version = await this.client.getVersionMs(id);
+				if (version !== undefined) fresh.set(id, version);
+				return artifacts;
+			},
 			fetchAudioUrl: (id) => this.client.getAudioUrl(id),
 			applyFold: s.foldTranscript
 				? (path) =>

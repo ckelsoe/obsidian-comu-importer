@@ -199,6 +199,7 @@ Tokens use [Moment formats](https://momentjs.com/docs/#/displaying/format/) in d
 ## Limits
 
 - **Daily request limit.** Comu allows 1,000 API requests per rolling 24 hours per key. Importing one recording takes about four requests, so the first import of a very large library may need to be spread over more than one day. Requests Comu refuses for the limit show up as failures with Comu's reason; wait and import the rest later.
+- **"Update available" after viewing.** Comu marks a recording as changed when it is opened, including in the Comu app. A recording you have viewed since importing it shows **Update available**, and automatic sync re-imports it. The plugin's own reads do not cause this: it stores the change time Comu reports after reading.
 - **Times.** Comu does not report the time zone a recording was made in, so times are shown in your computer's zone.
 - **Action items need permission.** If your API key cannot read action items, each recording fails with a message saying so, rather than being imported without them (which would delete action items an earlier import saved). Create a key with action item access.
 - **Not imported yet:** your own notes typed in the Comu app, Comu's folders, the visual summary, and contacts.

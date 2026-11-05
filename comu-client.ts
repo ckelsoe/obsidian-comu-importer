@@ -142,10 +142,21 @@ export function unwrapEnvelope(
 	return data;
 }
 
+/** Gateway answers worth one more try: Comu's edge returns these under load. */
+const RETRYABLE_STATUS: readonly number[] = [502, 503, 504];
+/** Pause before each retry, in milliseconds. Three attempts in all. */
+const RETRY_DELAYS_MS: readonly number[] = [500, 1500];
+
+const sleep = (ms: number): Promise<void> =>
+	new Promise((resolve) => {
+		window.setTimeout(resolve, ms);
+	});
+
 export class ComuClient {
 	constructor(
 		private readonly getKey: () => string,
 		private readonly request: Requester = (r) => requestUrl(r),
+		private readonly wait: (ms: number) => Promise<void> = sleep,
 	) {}
 
 	private async call(
@@ -161,18 +172,26 @@ export class ComuClient {
 				true,
 			);
 		}
-		const response = await this.request({
-			url: `${COMU_API_BASE}${path}`,
-			method,
-			headers: {
-				authorization: `Bearer ${key}`,
-				...(body !== undefined
-					? { 'content-type': 'application/json' }
-					: {}),
-			},
-			...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-			throw: false,
-		});
+		const send = () =>
+			this.request({
+				url: `${COMU_API_BASE}${path}`,
+				method,
+				headers: {
+					authorization: `Bearer ${key}`,
+					...(body !== undefined
+						? { 'content-type': 'application/json' }
+						: {}),
+				},
+				...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+				throw: false,
+			});
+		// Every call is a read, so a gateway error is safe to retry.
+		let response = await send();
+		for (const delay of RETRY_DELAYS_MS) {
+			if (!RETRYABLE_STATUS.includes(response.status)) break;
+			await this.wait(delay);
+			response = await send();
+		}
 		let json: unknown;
 		try {
 			json = response.json;
@@ -245,6 +264,22 @@ export class ComuClient {
 		}
 	}
 
+	/**
+	 * The recording's current change marker (`updateTime`), or undefined when
+	 * Comu reports none. Reading a recording's content moves it, so an import
+	 * stores the value read after the content, not the one from the list.
+	 */
+	async getVersionMs(id: RecordingId): Promise<number | undefined> {
+		const data = await this.call(
+			'POST',
+			'/v1/note/paging',
+			{ page: 1, pageSize: 1, noteId: id },
+			true,
+		);
+		const first = parseNotePage(data).recordings[0];
+		return first?.id === id ? first.versionMs : undefined;
+	}
+
 	/** A temporary link to the recording's audio, or null when Comu has none. */
 	async getAudioUrl(id: RecordingId): Promise<string | null> {
 		const data = await this.call(
@@ -268,31 +303,33 @@ export class ComuClient {
 
 	async getArtifacts(id: RecordingId): Promise<RecordingArtifacts> {
 		const q = `noteId=${encodeURIComponent(id)}`;
-		const [transcript, summaryData, outlineData, todoData] =
-			await Promise.all([
-				this.getTranscript(id),
-				this.get(`/v1/note/querySummary?${q}`, false),
-				// A failed extra fails the whole recording on purpose: writing the
-				// note without it would drop chapters or tasks an earlier import
-				// saved, and mark the note current so it is not retried.
-				this.get(`/v1/note/queryOutlines?${q}`, false),
-				this.call(
-					'POST',
-					'/v1/todo/list/queryByNote',
-					{ noteId: id },
-					false,
-				).catch((err: unknown) => {
-					// Fail the recording rather than import it without action
-					// items: a re-import would drop the ones its note already has.
-					if (err instanceof ComuApiError && err.status === 403) {
-						throw new ComuApiError(
-							'This API key cannot read action items. Create a key with action item access in the Comu app, then import again.',
-							403,
-						);
-					}
-					throw err;
-				}),
-			]);
+		// One request at a time: Comu's gateway answers 502 to some of them
+		// when they arrive together (seen 2026-11-05).
+		const transcript = await this.getTranscript(id);
+		const summaryData = await this.get(`/v1/note/querySummary?${q}`, false);
+		// A failed extra fails the whole recording on purpose: writing the note
+		// without it would drop chapters or tasks an earlier import saved, and
+		// mark the note current so it is not retried.
+		const outlineData = await this.get(
+			`/v1/note/queryOutlines?${q}`,
+			false,
+		);
+		const todoData = await this.call(
+			'POST',
+			'/v1/todo/list/queryByNote',
+			{ noteId: id },
+			false,
+		).catch((err: unknown) => {
+			// Fail the recording rather than import it without action items: a
+			// re-import would drop the ones its note already has.
+			if (err instanceof ComuApiError && err.status === 403) {
+				throw new ComuApiError(
+					'This API key cannot read action items. Create a key with action item access in the Comu app, then import again.',
+					403,
+				);
+			}
+			throw err;
+		});
 		const parsed = parseSummary(summaryData);
 		const summary: Summary | null =
 			parsed.summary !== null ? { id, text: parsed.summary } : null;
