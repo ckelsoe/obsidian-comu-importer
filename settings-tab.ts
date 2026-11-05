@@ -3,13 +3,12 @@ import {
 	Notice,
 	PluginSettingTab,
 	type Setting,
+	type TextComponent,
 	type SettingDefinitionItem,
 } from 'obsidian';
 import { isValidNoteNameTemplate } from 'obsidian-recording-importer-core';
 import type { ComuImporterSettings } from './settings';
 import type ComuImporterPlugin from './main';
-import { canOpenSignIn } from './comu-login';
-import { tokenFromPaste } from './comu-bookmarklet';
 
 // Community discussion for this plugin. This must stay a never-expiring
 // discord.gg invite: a discord.com/channels/... deep link only resolves for
@@ -17,13 +16,6 @@ import { tokenFromPaste } from './comu-bookmarklet';
 // invite expires after 7 days and would rot in a shipped release.
 const DISCORD_URL = 'https://discord.gg/gd6tKJDPj4';
 const REPO_URL = 'https://github.com/ckelsoe/obsidian-comu-importer';
-
-// The browser flow, for Google and Apple accounts whose sign-in will not run
-// in the app's window.
-const BROWSER_DESC =
-	'For Apple or Google sign-in. Click Set up bookmark once and drag the button it shows onto your bookmarks bar. Then sign in at web.comu.com in your browser and click the bookmark: Obsidian opens and saves the sign-in.';
-const PASTE_DESC =
-	'If the bookmark could not open Obsidian, copy the line it shows and click the button. A token copied by hand works too.';
 
 export class ComuSettingTab extends PluginSettingTab {
 	plugin: ComuImporterPlugin;
@@ -40,81 +32,17 @@ export class ComuSettingTab extends PluginSettingTab {
 				heading: 'Connection',
 				items: [
 					{
+						name: 'API key',
+						desc: 'Create one in the mobile app under Me, Developers, API keys (needs a Premium or Elite membership). Paste it here and click Save. It is checked first and kept in secret storage, not in the plugin settings file.',
+						render: (setting: Setting) => {
+							this.renderKey(setting);
+						},
+					},
+					{
 						name: 'Status',
 						searchable: false,
 						render: (setting: Setting) => {
 							this.renderStatus(setting);
-						},
-					},
-					{
-						name: 'Sign in',
-						desc: 'Opens the sign-in page in its own window. Sign in with your email and password; the window closes by itself when it is done.',
-						visible: () => canOpenSignIn(),
-						render: (setting: Setting) => {
-							setting.addButton((b) =>
-								b
-									.setButtonText('Sign in')
-									.setCta()
-									.onClick(() => {
-										void this.signIn();
-									}),
-							);
-						},
-					},
-					{
-						name: 'Sign in with your browser',
-						desc: BROWSER_DESC,
-						render: (setting: Setting) => {
-							setting
-								.addButton((b) =>
-									b
-										.setButtonText('Open web.comu.com')
-										.onClick(() => {
-											window.open(
-												'https://web.comu.com',
-												'_blank',
-											);
-										}),
-								)
-								.addButton((b) =>
-									b
-										.setButtonText('Set up bookmark')
-										.onClick(() => {
-											void this.guarded(
-												'bookmark setup',
-												() =>
-													this.plugin.openBookmarkSetup(),
-											);
-										}),
-								);
-						},
-					},
-					{
-						name: 'Paste token',
-						desc: PASTE_DESC,
-						render: (setting: Setting) => {
-							setting.addButton((b) =>
-								b
-									.setButtonText('Paste from clipboard')
-									.onClick(() => {
-										void this.pasteToken();
-									}),
-							);
-						},
-					},
-					{
-						name: 'Sign out',
-						desc: 'Remove the stored token from this device.',
-						visible: () => this.plugin.tokenInfo() !== null,
-						render: (setting: Setting) => {
-							setting.addButton((b) =>
-								b
-									.setButtonText('Sign out')
-									.setDestructive()
-									.onClick(() => {
-										void this.signOut();
-									}),
-							);
 						},
 					},
 				],
@@ -212,25 +140,61 @@ export class ComuSettingTab extends PluginSettingTab {
 		await this.plugin.saveSettings();
 	}
 
+	/** Bumped by each render; a callback from an older one must not touch the tab. */
+	private renderId = 0;
+
+	private renderKey(setting: Setting): void {
+		const renderId = ++this.renderId;
+		let input: TextComponent | null = null;
+		setting
+			.addText((text) => {
+				input = text;
+				text.inputEl.type = 'password';
+				text.inputEl.autocomplete = 'off';
+				text.setPlaceholder(
+					this.plugin.hasKey()
+						? 'Saved; paste a new key to replace it'
+						: 'kb_…',
+				);
+			})
+			.addButton((b) =>
+				b
+					.setButtonText('Save')
+					.setCta()
+					.onClick(() => {
+						const value = input?.getValue() ?? '';
+						void this.guarded(
+							'saving the API key',
+							() => this.plugin.saveKey(value),
+							renderId,
+						);
+					}),
+			);
+	}
+
 	private renderStatus(setting: Setting): void {
-		const info = this.plugin.tokenInfo();
-		if (info === null) {
-			setting.setDesc('Not signed in.');
+		if (!this.plugin.hasKey()) {
+			setting.setDesc('Not connected. Add your API key above.');
 			return;
 		}
-		const who = info.email ?? 'your account';
-		const until =
-			info.expiresAt === null
-				? ''
-				: info.expiresAt.getTime() <= Date.now()
-					? ' The token has expired; sign in again.'
-					: ` The token is valid until ${info.expiresAt.toLocaleDateString()}.`;
-		setting.setDesc(`Signed in as ${who}.${until}`);
-		setting.addButton((b) =>
-			b.setButtonText('Test connection').onClick(() => {
-				void this.testConnection();
-			}),
-		);
+		setting.setDesc('API key saved.');
+		setting
+			.addButton((b) =>
+				b.setButtonText('Test connection').onClick(() => {
+					void this.testConnection();
+				}),
+			)
+			.addButton((b) =>
+				b
+					.setButtonText('Remove key')
+					.setDestructive()
+					.onClick(() => {
+						void this.guarded('removing the API key', () => {
+							this.plugin.removeKey();
+							return Promise.resolve();
+						});
+					}),
+			);
 	}
 
 	/**
@@ -240,34 +204,24 @@ export class ComuSettingTab extends PluginSettingTab {
 	private async guarded(
 		what: string,
 		action: () => Promise<boolean | void>,
+		renderId = this.renderId,
 	): Promise<void> {
 		try {
 			const changed = await action();
-			if (changed !== false && this.containerEl.isConnected)
+			// Settings closed or redrawn meanwhile: leave the current view alone.
+			if (
+				changed !== false &&
+				renderId === this.renderId &&
+				this.containerEl.isConnected
+			) {
 				this.update();
+			}
 		} catch (err) {
 			console.error(`Comu importer: ${what} failed`, err);
 			new Notice(
 				`Comu importer: ${what} failed. See the developer console.`,
 			);
 		}
-	}
-
-	private signIn(): Promise<void> {
-		return this.guarded('sign-in', () => this.plugin.runSignIn());
-	}
-
-	private pasteToken(): Promise<void> {
-		return this.guarded('pasting the token', async () => {
-			const text = await navigator.clipboard.readText();
-			return this.plugin.saveToken(
-				tokenFromPaste(text, this.app.vault.getName()),
-			);
-		});
-	}
-
-	private signOut(): Promise<void> {
-		return this.guarded('sign-out', () => this.plugin.signOut());
 	}
 
 	private async testConnection(): Promise<void> {

@@ -97,7 +97,7 @@ export class ImportModal extends Modal {
 
 	private async load(): Promise<void> {
 		try {
-			const all = await this.deps.client.listAll();
+			const all = await this.deps.client.listAll(this.deps.showTrashed);
 			if (this.closed) return;
 			this.recordings = filterVisibleRecordings(
 				all,

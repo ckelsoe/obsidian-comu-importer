@@ -78,14 +78,22 @@ describe('parseNotePage', () => {
 });
 
 describe('parseAudioUrl', () => {
-	it('accepts only https URLs', () => {
+	const page = (item: unknown) => ({ data: [item], total: 1 });
+
+	it('reads the first list item, https only', () => {
 		expect(
-			parseAudioUrl({ audioUrl: 'https://cdn.example/a.m4a?sig=1' }),
+			parseAudioUrl(
+				page({ audioUrl: 'https://cdn.example/a.m4a?sig=1' }),
+			),
 		).toBe('https://cdn.example/a.m4a?sig=1');
 		expect(
-			parseAudioUrl({ audioUrl: 'http://cdn.example/a.m4a' }),
+			parseAudioUrl(page({ tempAudioUrl: 'https://cdn.example/b.m4a' })),
+		).toBe('https://cdn.example/b.m4a');
+		expect(
+			parseAudioUrl(page({ audioUrl: 'http://cdn.example/a.m4a' })),
 		).toBeNull();
-		expect(parseAudioUrl({ audioUrl: null })).toBeNull();
+		expect(parseAudioUrl(page({ audioUrl: null }))).toBeNull();
+		expect(parseAudioUrl({ data: [], total: 0 })).toBeNull();
 	});
 });
 

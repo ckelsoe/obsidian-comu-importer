@@ -1,7 +1,7 @@
-// Read-only client for Comu's private web API. Every call sends only the
-// `authorization` header the web portal uses. The client never calls
-// `updateNote`: the portal uses it to mark notes read, and this plugin makes no
-// write to the Comu account.
+// Client for Comu's official developer API (https://openapi.comu.com). It is
+// read-only by design: Comu offers no create, update or delete endpoints, and
+// this client calls only the documented query endpoints. Every request carries
+// the user's API key (`kb_...`) as a Bearer token.
 
 import { requestUrl, type RequestUrlParam } from 'obsidian';
 import type {
@@ -27,9 +27,9 @@ import {
 	type NotePage,
 } from './comu-parse';
 
-export const COMU_API_BASE = 'https://api.comu.com/api/kirby';
+export const COMU_API_BASE = 'https://openapi-api.comu.com/api/kirby';
 
-/** The token is missing, rejected or expired. */
+/** The API key is missing, rejected or revoked. */
 export class ComuAuthError extends Error {
 	constructor(
 		message: string,
@@ -51,19 +51,18 @@ export class ComuApiError extends Error {
 	}
 }
 
-/** Comu's code for a missing or invalid token (sent with HTTP 401). */
+/** Comu's code for a missing or invalid credential (sent with HTTP 401). */
 const CODE_BAD_TOKEN = 20400;
+/** Comu could not check the account's membership just now; try again later. */
+const CODE_ENTITLEMENT_UNAVAILABLE = 87602;
 
-/**
- * The web portal stores the token JSON-quoted (`"eyJ..."`). Accept a pasted
- * value either way, and an optional `Bearer ` prefix.
- */
-export function normalizeToken(raw: string | null | undefined): string {
-	let token = (raw ?? '').trim();
-	if (token.startsWith('"') && token.endsWith('"') && token.length >= 2) {
-		token = token.slice(1, -1).trim();
+/** The key as pasted: surrounding space, quotes or a `Bearer ` prefix removed. */
+export function normalizeKey(raw: string | null | undefined): string {
+	let key = (raw ?? '').trim();
+	if (key.startsWith('"') && key.endsWith('"') && key.length >= 2) {
+		key = key.slice(1, -1).trim();
 	}
-	return token.replace(/^bearer\s+/i, '');
+	return key.replace(/^bearer\s+/i, '');
 }
 
 type Requester = (request: RequestUrlParam) => Promise<{
@@ -94,7 +93,7 @@ export function unwrapEnvelope(
 			: undefined;
 	if (status === 401 || status === 403 || code === CODE_BAD_TOKEN) {
 		throw new ComuAuthError(
-			'Comu rejected the token. Paste a fresh token in the plugin settings.',
+			'Comu rejected the API key. Check it in the plugin settings; a revoked key, or a membership without Developers access, is refused.',
 		);
 	}
 	if (status < 200 || status >= 300) {
@@ -107,6 +106,12 @@ export function unwrapEnvelope(
 		throw new ComuParseError('Comu returned a response that is not JSON');
 	}
 	const b = body as Record<string, unknown>;
+	if (code === CODE_ENTITLEMENT_UNAVAILABLE) {
+		throw new ComuApiError(
+			'Comu could not check your membership just now. Try again in a few minutes.',
+			503,
+		);
+	}
 	if (b['success'] !== true) {
 		throw new ComuApiError(
 			`Comu reported an error${messageOf(body) ? `: ${messageOf(body)}` : ''} (code ${String(code)})`,
@@ -116,7 +121,7 @@ export function unwrapEnvelope(
 	const data = b['data'];
 	if (requireData && (data === null || data === undefined)) {
 		throw new ComuAuthError(
-			'Comu returned no data. The token may be pasted incorrectly; paste it again in the plugin settings.',
+			'Comu returned no data for this API key. Check the key in the plugin settings.',
 		);
 	}
 	return data;
@@ -124,7 +129,7 @@ export function unwrapEnvelope(
 
 export class ComuClient {
 	constructor(
-		private readonly getToken: () => string,
+		private readonly getKey: () => string,
 		private readonly request: Requester = (r) => requestUrl(r),
 	) {}
 
@@ -134,10 +139,10 @@ export class ComuClient {
 		body: unknown,
 		requireData: boolean,
 	): Promise<unknown> {
-		const token = normalizeToken(this.getToken());
-		if (token.length === 0) {
+		const key = normalizeKey(this.getKey());
+		if (key.length === 0) {
 			throw new ComuAuthError(
-				'No Comu token. Add one in the plugin settings.',
+				'No Comu API key. Add one in the plugin settings.',
 				true,
 			);
 		}
@@ -145,9 +150,7 @@ export class ComuClient {
 			url: `${COMU_API_BASE}${path}`,
 			method,
 			headers: {
-				// Comu wants the scheme in the header; without it the API answers
-				// "Missing authorization token" (code 20400).
-				authorization: `Bearer ${token}`,
+				authorization: `Bearer ${key}`,
 				...(body !== undefined
 					? { 'content-type': 'application/json' }
 					: {}),
@@ -168,26 +171,55 @@ export class ComuClient {
 		return this.call('GET', path, undefined, requireData);
 	}
 
-	/** Confirms the token works. Resolves to nothing; throws on failure. */
+	/** Confirms the key works. Resolves to nothing; throws on failure. */
 	async testConnection(): Promise<void> {
-		await this.get('/v1/user/queryInfo');
+		await this.listPage(1, 1, false);
 	}
 
-	async listPage(page: number, pageSize: number): Promise<NotePage> {
+	async listPage(
+		page: number,
+		pageSize: number,
+		trash: boolean,
+	): Promise<NotePage> {
 		const data = await this.call(
 			'POST',
-			'/v2/note/paging',
-			{ page, pageSize, viewType: 'ALL' },
+			'/v1/note/paging',
+			{ page, pageSize, trash },
 			true,
 		);
-		return parseNotePage(data);
+		const result = parseNotePage(data);
+		// The trash filter decides; items may not carry a flag of their own.
+		return trash
+			? {
+					...result,
+					recordings: result.recordings.map((r) => ({
+						...r,
+						isTrashed: true,
+					})),
+				}
+			: result;
 	}
 
-	/** Every recording, newest first as Comu lists them. */
-	async listAll(pageSize = 50): Promise<Recording[]> {
+	/** Every recording (and, when asked, the trash), as Comu lists them. */
+	async listAll(
+		includeTrashed: boolean,
+		pageSize = 50,
+	): Promise<Recording[]> {
+		const all = await this.listEvery(false, pageSize);
+		if (!includeTrashed) return all;
+		// Newest first across both lists, so trash sits in date order.
+		return [...all, ...(await this.listEvery(true, pageSize))].sort(
+			(a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+		);
+	}
+
+	private async listEvery(
+		trash: boolean,
+		pageSize: number,
+	): Promise<Recording[]> {
 		const all: Recording[] = [];
 		for (let page = 1; ; page++) {
-			const result = await this.listPage(page, pageSize);
+			const result = await this.listPage(page, pageSize, trash);
 			all.push(...result.recordings);
 			if (
 				result.recordings.length < pageSize ||
@@ -198,12 +230,15 @@ export class ComuClient {
 		}
 	}
 
+	/** A temporary link to the recording's audio, or null when Comu has none. */
 	async getAudioUrl(id: RecordingId): Promise<string | null> {
-		return parseAudioUrl(
-			await this.get(
-				`/v2/note/noteDetail?noteId=${encodeURIComponent(id)}`,
-			),
+		const data = await this.call(
+			'POST',
+			'/v1/note/paging',
+			{ page: 1, pageSize: 1, noteId: id, needGenTempAudioUrl: true },
+			true,
 		);
+		return parseAudioUrl(data);
 	}
 
 	async getTranscript(id: RecordingId): Promise<Transcript | null> {
