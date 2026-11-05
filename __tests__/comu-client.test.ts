@@ -96,7 +96,17 @@ describe('ComuClient', () => {
 	it('sends only the unwrapped token as the authorization header', async () => {
 		const server = fakeServer(() => ({ status: 200, json: ok({}) }));
 		await new ComuClient(() => '"tok"', server.request).testConnection();
-		expect(server.calls[0]?.headers).toEqual({ authorization: 'tok' });
+		// The portal's stored form already carries the scheme; it is not doubled.
+		await new ComuClient(
+			() => 'Bearer tok',
+			server.request,
+		).testConnection();
+		expect(server.calls[1]?.headers).toEqual({
+			authorization: 'Bearer tok',
+		});
+		expect(server.calls[0]?.headers).toEqual({
+			authorization: 'Bearer tok',
+		});
 	});
 
 	it('pages until it has every recording', async () => {

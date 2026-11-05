@@ -145,7 +145,9 @@ export class ComuClient {
 			url: `${COMU_API_BASE}${path}`,
 			method,
 			headers: {
-				authorization: token,
+				// Comu wants the scheme in the header; without it the API answers
+				// "Missing authorization token" (code 20400).
+				authorization: `Bearer ${token}`,
 				...(body !== undefined
 					? { 'content-type': 'application/json' }
 					: {}),
