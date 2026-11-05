@@ -9,6 +9,7 @@ import { isValidNoteNameTemplate } from 'obsidian-recording-importer-core';
 import type { ComuImporterSettings } from './settings';
 import type ComuImporterPlugin from './main';
 import { canOpenSignIn } from './comu-login';
+import { tokenFromPaste } from './comu-bookmarklet';
 
 // Community discussion for this plugin. This must stay a never-expiring
 // discord.gg invite: a discord.com/channels/... deep link only resolves for
@@ -17,10 +18,12 @@ import { canOpenSignIn } from './comu-login';
 const DISCORD_URL = 'https://discord.gg/gd6tKJDPj4';
 const REPO_URL = 'https://github.com/ckelsoe/obsidian-comu-importer';
 
-// For Google and Apple accounts, whose sign-in may refuse an embedded window.
-// The portal stores the token JSON-quoted; the plugin accepts it either way.
+// The browser flow, for Google and Apple accounts whose sign-in will not run
+// in the app's window.
+const BROWSER_DESC =
+	'For Apple or Google sign-in. Click Set up bookmark once and drag the button it shows onto your bookmarks bar. Then sign in at web.comu.com in your browser and click the bookmark: Obsidian opens and saves the sign-in.';
 const PASTE_DESC =
-	'For Google or Apple sign-in. In your browser, sign in at web.comu.com, open the developer console (Cmd+Option+J or Ctrl+Shift+J), run copy(localStorage.authorization), then click the button.';
+	'If the bookmark could not open Obsidian, copy the line it shows and click the button. A token copied by hand works too.';
 
 export class ComuSettingTab extends PluginSettingTab {
 	plugin: ComuImporterPlugin;
@@ -56,6 +59,34 @@ export class ComuSettingTab extends PluginSettingTab {
 										void this.signIn();
 									}),
 							);
+						},
+					},
+					{
+						name: 'Sign in with your browser',
+						desc: BROWSER_DESC,
+						render: (setting: Setting) => {
+							setting
+								.addButton((b) =>
+									b
+										.setButtonText('Open web.comu.com')
+										.onClick(() => {
+											window.open(
+												'https://web.comu.com',
+												'_blank',
+											);
+										}),
+								)
+								.addButton((b) =>
+									b
+										.setButtonText('Set up bookmark')
+										.onClick(() => {
+											void this.guarded(
+												'bookmark setup',
+												() =>
+													this.plugin.openBookmarkSetup(),
+											);
+										}),
+								);
 						},
 					},
 					{
@@ -229,7 +260,9 @@ export class ComuSettingTab extends PluginSettingTab {
 	private pasteToken(): Promise<void> {
 		return this.guarded('pasting the token', async () => {
 			const text = await navigator.clipboard.readText();
-			return this.plugin.saveToken(text);
+			return this.plugin.saveToken(
+				tokenFromPaste(text, this.app.vault.getName()),
+			);
 		});
 	}
 

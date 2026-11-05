@@ -1,4 +1,4 @@
-import { Notice, Plugin } from 'obsidian';
+import { Notice, Platform, Plugin, type ObsidianProtocolData } from 'obsidian';
 import {
 	managedMarkers,
 	type ImportModalOptions,
@@ -6,6 +6,11 @@ import {
 import { ComuClient, COMU_ERROR_POLICY, normalizeToken } from './comu-client';
 import { clearSignInSession, openSignIn, type SignIn } from './comu-login';
 import { readToken, TOKEN_SECRET_ID, type TokenInfo } from './comu-token';
+import {
+	bookmarkSetupHtml,
+	buildBookmarklet,
+	TOKEN_LINK_ACTION,
+} from './comu-bookmarklet';
 import { COMU_PROFILE } from './comu-profile';
 import { ImportModal } from './import-modal';
 import { ComuSettingTab } from './settings-tab';
@@ -18,6 +23,7 @@ export default class ComuImporterPlugin extends Plugin {
 	private importModal: ImportModal | null = null;
 	/** The open sign-in window, if any. */
 	private signIn: SignIn | null = null;
+	private settingTab: ComuSettingTab | null = null;
 	/**
 	 * Bumped by Sign out and unload. A sign-in or paste that started under an
 	 * older value is stale and must not store its token.
@@ -29,7 +35,17 @@ export default class ComuImporterPlugin extends Plugin {
 		this.settings = normalizeSettings(data);
 		this.migrateLegacySecret(data);
 		this.client = new ComuClient(() => this.storedToken());
-		this.addSettingTab(new ComuSettingTab(this.app, this));
+		this.settingTab = new ComuSettingTab(this.app, this);
+		this.addSettingTab(this.settingTab);
+		// The browser bookmark hands the token back through this link.
+		this.registerObsidianProtocolHandler(TOKEN_LINK_ACTION, (params) => {
+			void this.handleTokenLink(params).catch((err: unknown) => {
+				console.error('Comu importer: sign-in link failed', err);
+				new Notice(
+					'Comu importer: could not save the sign-in from your browser. Paste it in the plugin settings instead.',
+				);
+			});
+		});
 		this.addRibbonIcon('mic', 'Import recordings', () => {
 			this.openImport();
 		});
@@ -123,6 +139,56 @@ export default class ComuImporterPlugin extends Plugin {
 		} finally {
 			if (this.signIn === signIn) this.signIn = null;
 		}
+	}
+
+	private async handleTokenLink(params: ObsidianProtocolData): Promise<void> {
+		// Built for one vault; another vault's bookmark is not for this one.
+		if (params.vault !== this.app.vault.getName()) return;
+		const token = params['token'];
+		if (typeof token !== 'string' || token.length === 0) {
+			new Notice(
+				'Comu importer: the sign-in link carried no token. Sign in at web.comu.com, then click the bookmark again.',
+			);
+			return;
+		}
+		// Refresh the status line if the settings are open.
+		if (
+			(await this.saveToken(token)) &&
+			this.settingTab?.containerEl.isConnected
+		) {
+			this.settingTab.update();
+		}
+	}
+
+	/**
+	 * Open the bookmark setup page in the system browser. Without desktop file
+	 * access, copy the bookmark instead so it can be added by hand.
+	 */
+	async openBookmarkSetup(): Promise<void> {
+		const vault = this.app.vault.getName();
+		const req = (window as { require?: (id: string) => unknown }).require;
+		if (!Platform.isDesktopApp || typeof req !== 'function') {
+			await navigator.clipboard.writeText(buildBookmarklet(vault));
+			new Notice(
+				'Comu importer: bookmark copied. Make a new bookmark and paste it into the address field.',
+			);
+			return;
+		}
+		const os = req('os') as { tmpdir(): string };
+		const fs = req('fs') as {
+			writeFileSync(path: string, data: string): void;
+		};
+		const path = req('path') as { join(...parts: string[]): string };
+		const file = path.join(os.tmpdir(), 'comu-importer-bookmark.html');
+		fs.writeFileSync(file, bookmarkSetupHtml(vault));
+		const shell = (
+			req('electron') as {
+				shell?: { openPath(path: string): Promise<string> };
+			}
+		).shell;
+		if (shell === undefined) throw new Error('Electron shell unavailable');
+		const failure = await shell.openPath(file);
+		if (failure) throw new Error(failure);
 	}
 
 	async signOut(): Promise<void> {

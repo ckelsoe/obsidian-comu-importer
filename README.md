@@ -7,10 +7,11 @@ Import your [Comu](https://comu.com) recordings into notes: the AI summary, insi
 
 ## Setup
 
-Open the plugin's settings and sign in:
+Open the plugin's settings and sign in one of these ways:
 
-- **Sign in** (desktop): opens Comu's sign-in page in its own window. Sign in with your email and password. The window closes by itself and the settings show **Signed in as** your email.
-- **Paste token**: for Google or Apple accounts, or on mobile. In your browser, sign in at [web.comu.com](https://web.comu.com), open the developer console (Cmd+Option+J on a Mac, Ctrl+Shift+J elsewhere), run `copy(localStorage.authorization)`, then click **Paste from clipboard**.
+- **Sign in** (desktop, email and password): opens Comu's sign-in page in its own window. The window closes by itself once you are signed in.
+- **Sign in with your browser** (Apple or Google): click **Set up bookmark** once and drag the button it shows onto your bookmarks bar. Then sign in at [web.comu.com](https://web.comu.com) in your browser and click the bookmark on that tab. Obsidian opens and saves the sign-in.
+- **Paste token**: if the bookmark could not open Obsidian, it shows a line of text; copy it and click **Paste from clipboard**.
 
 The plugin checks the token with Comu before saving it, and keeps it in Obsidian's secret storage under the name `comu-importer-token`, never in the plugin's settings file. Comu tokens last about five months; the settings show when yours expires. **Sign out** removes it.
 
