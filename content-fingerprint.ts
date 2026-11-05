@@ -80,7 +80,9 @@ export function readStoredFingerprint(noteText: string): string | undefined {
 	const end = noteText.indexOf('\n---', 3);
 	if (end < 0) return undefined;
 	for (const line of noteText.slice(3, end).split('\n')) {
-		const match = /^comu-content-hash:\s*"?([0-9a-f]{16})"?\s*$/.exec(line);
+		const match = /^comu-content-hash:\s*["']?([0-9a-f]{16})["']?\s*$/.exec(
+			line,
+		);
 		if (match) return match[1];
 	}
 	return undefined;

@@ -124,5 +124,11 @@ describe('readStoredFingerprint', () => {
 			),
 		).toBeUndefined();
 		expect(readStoredFingerprint('no frontmatter')).toBeUndefined();
+		// Single quotes, as some frontmatter editors write them.
+		expect(
+			readStoredFingerprint(
+				"---\ncomu-content-hash: '0123456789abcdef'\n---\n",
+			),
+		).toBe('0123456789abcdef');
 	});
 });

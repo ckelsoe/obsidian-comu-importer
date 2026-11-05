@@ -216,7 +216,9 @@ Comu's developer API is new and has gaps that affect an importer. Here is each o
 **What it costs you.**
 
 - Each check reads the recording, about five requests, so viewing many recordings in the Comu app makes the next check use more of the daily allowance below. The import window shows "Checking N recordings…" while it does this.
-- Notes imported before version 0.1.1 have no fingerprint. Each is re-imported once, the next time Comu marks it changed, to record one.
+- Notes imported before version 0.1.1 have no fingerprint, so the next time Comu marks one changed it counts as changed. Automatic sync then updates it, which records a fingerprint. In the import window it follows **When a note already exists**; if you skip it, it stays without a fingerprint and is marked again next time.
+- The import window checks at most 20 recordings each time it opens, newest first. Any others Comu marks as changed keep **Update available**; they can still be imported, and the next opening checks them.
+- If an audio download fails, the note keeps no fingerprint, so a later check retries it.
 - The fingerprint also covers the recording's title, start time and length, and what you chose under **What to import**. After you change that choice, a recording checked later counts as changed once and is re-imported with the new choice.
 - A recording that cannot be checked (for example a Comu error) keeps **Update available** and is checked again next time; the others are still checked.
 

@@ -23,7 +23,7 @@ import {
 	type RecordingArtifacts,
 	type RecordingId,
 } from 'obsidian-recording-importer-core';
-import { AudioPipeline } from './audio-pipeline';
+import { AUDIO_START_MARKER, AudioPipeline } from './audio-pipeline';
 import {
 	COMU_ERROR_POLICY,
 	ComuNotProcessedError,
@@ -243,6 +243,11 @@ export class ImportService {
 	 */
 	private readonly prefetched = new Map<string, Fetched>();
 
+	/** Drop content read by a check that no import will use. */
+	discardPrefetched(): void {
+		this.prefetched.clear();
+	}
+
 	/** Read one recording's selected parts, its fingerprint and fresh marker. */
 	private async fetchForImport(
 		recording: Recording,
@@ -456,6 +461,7 @@ export class ImportService {
 				const fetched =
 					cached !== undefined &&
 					cached.choiceKey === choiceKey(args.choice) &&
+					cached.version !== undefined &&
 					cached.version === (await this.client.getVersionMs(id))
 						? cached
 						: await this.fetchForImport(recording, args.choice);
@@ -484,6 +490,32 @@ export class ImportService {
 		});
 		// Content read for a check but not imported is not kept for later.
 		this.prefetched.clear();
+		// A note whose audio did not arrive must stay eligible for a retry:
+		// without its fingerprint it counts as changed at the next check.
+		if (args.choice.audio) {
+			for (const result of outcome.results) {
+				if (args.cancelled()) break;
+				if (
+					result.kind !== 'written' ||
+					result.writeOutcome.status === 'skipped'
+				) {
+					continue;
+				}
+				const file = this.app.vault.getFileByPath(
+					result.writeOutcome.path,
+				);
+				if (file === null) continue;
+				const text = await this.app.vault.read(file);
+				if (args.cancelled() || text.includes(AUDIO_START_MARKER))
+					continue;
+				await this.app.fileManager.processFrontMatter(
+					file,
+					(fm: Record<string, unknown>) => {
+						delete fm[FINGERPRINT_KEY];
+					},
+				);
+			}
+		}
 		return outcome;
 	}
 }
