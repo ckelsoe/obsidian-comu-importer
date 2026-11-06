@@ -61,6 +61,8 @@ The plugin uses [Comu's official developer API](https://openapi.comu.com) with a
 
 ### From Community plugins
 
+Open the [Comu Importer listing](https://community.obsidian.md/plugins/comu-importer) and click **Install**, or inside Obsidian:
+
 1. Open **Settings → Community plugins** and turn off Restricted mode if it is on.
 2. Click **Browse** and search for **Comu Importer**.
 3. Click **Install**, then **Enable**.
