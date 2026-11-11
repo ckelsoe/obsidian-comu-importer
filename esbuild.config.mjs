@@ -63,7 +63,7 @@ const context = await esbuild.context({
 	},
 	entryPoints: ["main.ts"],
 	// Compile obsidian-recording-importer-core (TypeScript source in node_modules)
-	// with this tsconfig, the same way tsc and jest see it.
+	// with this tsconfig, the same way tsc and Vitest see it.
 	tsconfig: "tsconfig.json",
 	bundle: true,
 	external: [

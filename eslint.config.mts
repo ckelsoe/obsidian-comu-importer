@@ -66,7 +66,7 @@ export default tseslint.config(
 		files: ["__tests__/**/*.ts"],
 		languageOptions: {
 			globals: {
-				...globals.jest,
+				...globals.vitest,
 			},
 		},
 		rules: {
@@ -82,7 +82,7 @@ export default tseslint.config(
 	},
 	{
 		// __tests__/__mocks__/obsidian.ts IS the stub that stands in for the
-		// `obsidian` module under jest, so the restricted-import rule's remedy
+		// `obsidian` module under Vitest, so the restricted-import rule's remedy
 		// ("import moment from 'obsidian'") would make it import itself. Scoped
 		// off here for the mocks directory only.
 		files: ["__tests__/__mocks__/**/*.ts"],
@@ -105,7 +105,7 @@ export default tseslint.config(
 		"package-lock.json",
 		"tsconfig.json",
 		"tsconfig.scan.json",
-		"jest.config.cjs",
+		"vitest.config.mts",
 		"eslint.config.mts",
 	]),
 	// Last, so it wins: disables every stylistic rule Prettier owns.

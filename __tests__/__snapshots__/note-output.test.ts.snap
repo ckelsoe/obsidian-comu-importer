@@ -1,6 +1,6 @@
-// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Comu note output matches the stored format 1`] = `
+exports[`Comu note output > matches the stored format 1`] = `
 "---
 comu-id: "4d4b0c1e-0000-4000-8000-000000000001"
 comu-url: "https://web.comu.com/all-files/note/4d4b0c1e-0000-4000-8000-000000000001"
