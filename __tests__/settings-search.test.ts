@@ -75,26 +75,31 @@ describe('settings search', () => {
 		['Interval', 'autoSyncEnabled', true, false],
 		['Ribbon icon', 'showRibbonIcon', true, false],
 	] as const)(
-		'shows %s only while %s applies, and redraws when it changes',
+		'shows %s only while %s applies, and re-evaluates it in place on change',
 		async (name, key, on, off) => {
 			const { settings, tab, byName } = setup();
 			const visible = byName(name).visible;
 			expect(visible).toBeTypeOf('function');
 			const update = vi.spyOn(tab, 'update');
+			const refresh = vi.spyOn(tab, 'refreshDomState');
 
 			await tab.setControlValue(key, off);
 			expect(settings[key]).toBe(off);
 			expect(visible?.()).toBe(false);
 			await tab.setControlValue(key, on);
 			expect(visible?.()).toBe(true);
-			expect(update).toHaveBeenCalledTimes(2);
+			expect(refresh).toHaveBeenCalledTimes(2);
+			// A full rebuild would drop an unsaved API key in the render row.
+			expect(update).not.toHaveBeenCalled();
 		},
 	);
 
-	it('does not redraw for a setting nothing depends on', async () => {
+	it('does not refresh for a setting nothing depends on', async () => {
 		const { tab } = setup();
 		const update = vi.spyOn(tab, 'update');
+		const refresh = vi.spyOn(tab, 'refreshDomState');
 		await tab.setControlValue('includeAudio', true);
 		expect(update).not.toHaveBeenCalled();
+		expect(refresh).not.toHaveBeenCalled();
 	});
 });

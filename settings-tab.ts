@@ -460,7 +460,9 @@ export class ComuSettingTab extends PluginSettingTab {
 		if (key === 'autoSyncEnabled' || key === 'autoSyncIntervalMinutes') {
 			this.plugin.reconcileAutoSync();
 		}
-		if (PARENT_KEYS.includes(key)) this.update();
+		// Re-evaluate `visible` in place. update() would rebuild the tab and drop
+		// text typed into a render row (the API key) but not saved yet.
+		if (PARENT_KEYS.includes(key)) this.refreshDomState();
 	}
 
 	private async save(): Promise<void> {
