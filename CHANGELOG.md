@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Settings search now finds the connection status row, and finds the template, time zone, frontmatter, API key and ribbon icon rows by more words (for example "filename", "timezone" or "properties").
+- Settings that only matter while another is on are hidden until they do: My tags while Tags is set to my tags, Countdown while results close automatically, Interval while automatic sync is on, and Ribbon icon while the ribbon icon is shown.
+
 ## [0.1.1] - 2026-11-05
 
 ### Fixed

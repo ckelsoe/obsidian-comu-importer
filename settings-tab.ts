@@ -104,6 +104,14 @@ const TAG_MODE_DESC =
 const AUTO_SYNC_DESC =
 	'Imports new and changed recordings in the background on a schedule, without asking. A changed recording is re-imported: the part of its note between the markers is replaced, and the text around it is kept. Comu allows 1,000 requests a day per key. A recording takes about 5 (6 with audio), and each sync lists your recordings 100 at a time. Sync pauses once this device has used 600 in a day, leaving the rest for imports you start.';
 
+// Parents of settings shown only while they apply: a change redraws the tab.
+const PARENT_KEYS: readonly string[] = [
+	'tagMode',
+	'autoCloseSummary',
+	'autoSyncEnabled',
+	'showRibbonIcon',
+];
+
 const NUMERIC_KEYS: readonly string[] = [
 	'transcriptHeaderLevel',
 	'autoSyncIntervalMinutes',
@@ -131,13 +139,19 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'API key',
 						desc: 'Create one in the mobile app under Me, Developers, API keys (needs a Premium or Elite membership). Paste it here and click Save. It is checked first and kept in secret storage, not in the plugin settings file.',
+						aliases: ['token', 'connect', 'sign in', 'secret'],
 						render: (setting: Setting) => {
 							this.renderKey(setting);
 						},
 					},
 					{
 						name: 'Status',
-						searchable: false,
+						desc: 'Whether an API key is saved, with buttons to test the connection or remove the key.',
+						aliases: [
+							'test connection',
+							'remove key',
+							'disconnect',
+						],
 						render: (setting: Setting) => {
 							this.renderStatus(setting);
 						},
@@ -163,6 +177,7 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Subfolder template',
 						desc: "Optional. Files each note into folders built from the recording's date. A forward slash starts a new folder level. Leave empty to keep every note in the output folder.",
+						aliases: ['folder', 'path', 'year', 'month', 'date'],
 						render: (setting: Setting) => {
 							this.renderSubfolder(setting);
 						},
@@ -170,6 +185,7 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Note name template',
 						desc: "Each note's name, from the recording's date and title.",
+						aliases: ['file name', 'filename', 'title', 'format'],
 						render: (setting: Setting) => {
 							this.renderNoteName(setting);
 						},
@@ -177,6 +193,7 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Datetime property',
 						desc: 'Optional. Adds a datetime property in any format. The date property stays YYYY-MM-DD. Leave empty to write none.',
+						aliases: ['date format', 'time', 'frontmatter'],
 						render: (setting: Setting) => {
 							this.renderDatetime(setting);
 						},
@@ -184,6 +201,7 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Time zone',
 						desc: TIMEZONE_DESC,
+						aliases: ['timezone', 'tz', 'utc'],
 						render: (setting: Setting) => {
 							this.renderTimezone(setting);
 						},
@@ -191,6 +209,7 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Extra frontmatter',
 						desc: CUSTOM_FRONTMATTER_DESC,
+						aliases: ['properties', 'property', 'yaml', 'metadata'],
 						render: (setting: Setting) => {
 							this.renderCustomFrontmatter(setting);
 						},
@@ -311,6 +330,8 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'My tags',
 						desc: 'Comma-separated, for example comu-meeting, work.',
+						visible: () =>
+							this.plugin.settings.tagMode === 'custom',
 						control: { type: 'text', key: 'customTags' },
 					},
 				],
@@ -335,6 +356,7 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Countdown',
 						desc: 'Seconds before the results close.',
+						visible: () => this.plugin.settings.autoCloseSummary,
 						control: {
 							type: 'slider',
 							key: 'autoCloseSummarySeconds',
@@ -362,6 +384,7 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Interval',
 						desc: 'Time between syncs.',
+						visible: () => this.plugin.settings.autoSyncEnabled,
 						control: {
 							type: 'dropdown',
 							key: 'autoSyncIntervalMinutes',
@@ -389,6 +412,8 @@ export class ComuSettingTab extends PluginSettingTab {
 					{
 						name: 'Ribbon icon',
 						desc: 'Pick one that tells it apart from other importers.',
+						aliases: ['icon'],
+						visible: () => this.plugin.settings.showRibbonIcon,
 						render: (setting: Setting) => {
 							this.renderRibbonIcon(setting);
 						},
@@ -435,6 +460,7 @@ export class ComuSettingTab extends PluginSettingTab {
 		if (key === 'autoSyncEnabled' || key === 'autoSyncIntervalMinutes') {
 			this.plugin.reconcileAutoSync();
 		}
+		if (PARENT_KEYS.includes(key)) this.update();
 	}
 
 	private async save(): Promise<void> {
