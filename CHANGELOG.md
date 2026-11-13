@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-13
+
 ### Changed
 
 - Settings search now finds the connection status row, and finds the template, time zone, frontmatter, API key and ribbon icon rows by more words (for example "filename", "timezone" or "properties").
