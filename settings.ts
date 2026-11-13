@@ -122,7 +122,7 @@ export function resolveRibbonIcon(stored: string): string {
 function normalizeRows(raw: unknown): CustomFrontmatterRow[] {
 	if (!Array.isArray(raw)) return [];
 	const rows: CustomFrontmatterRow[] = [];
-	for (const row of raw) {
+	for (const row of raw as unknown[]) {
 		if (!isRecord(row)) continue;
 		const key = row['key'];
 		const value = row['value'];
@@ -217,7 +217,7 @@ export function normalizeSettings(raw: unknown): ComuImporterSettings {
 		),
 		ignoredRecordingIds: Array.isArray(ignored)
 			? ignored.filter(
-					(id): id is RecordingId =>
+					(id: unknown): id is RecordingId =>
 						typeof id === 'string' && id.length > 0,
 				)
 			: [],
